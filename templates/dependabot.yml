@@ -31,13 +31,13 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
     groups:
-      go-dependencies:
-        patterns:
-          - "*"
       kubernetes:
         patterns:
           - "k8s.io/*"
           - "sigs.k8s.io/*"
+      go-dependencies:
+        patterns:
+          - "*"
 
   # GitHub Actions dependencies
   - package-ecosystem: "github-actions"
