@@ -1,0 +1,32 @@
+# Reusable Prow Auto-merge workflow
+# Auto-merges PRs with the 'lgtm' label (blocked by 'hold' label)
+#
+# Usage in consuming repo:
+#   name: Prow Auto-merge
+#   on:
+#     schedule:
+#       - cron: "*/5 * * * *"
+#   jobs:
+#     auto-merge:
+#       uses: llm-d/llm-d-infra/.github/workflows/reusable-prow-automerge.yml@main
+
+name: Prow Auto-merge (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      merge-method:
+        description: 'Merge method: squash, merge, or rebase'
+        required: false
+        type: string
+        default: 'squash'
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: jpmcb/prow-github-actions@v2.0.0
+        with:
+          jobs: 'lgtm'
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+          merge-method: "${{ inputs.merge-method }}"
