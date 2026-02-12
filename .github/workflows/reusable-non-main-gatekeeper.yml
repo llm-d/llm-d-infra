@@ -1,0 +1,28 @@
+# Reusable Non-Main Gatekeeper workflow
+# Adds 'do-not-merge/hold' label to PRs targeting non-main branches
+#
+# Usage in consuming repo:
+#   name: Non-Main Gatekeeper
+#   on:
+#     pull_request:
+#       types: [opened, edited, synchronize, reopened]
+#   jobs:
+#     gatekeeper:
+#       uses: llm-d/llm-d-infra/.github/workflows/reusable-non-main-gatekeeper.yml@main
+
+name: Non-Main Gatekeeper (Reusable)
+
+on:
+  workflow_call:
+
+jobs:
+  add-label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add hold label when base branch is not main
+        if: github.event.pull_request.base.ref != 'main'
+        uses: actions-ecosystem/action-add-labels@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          labels: |
+            do-not-merge/hold

@@ -1,0 +1,26 @@
+# Reusable Typos Check workflow
+# Spell-checks code and documentation
+#
+# Usage in consuming repo:
+#   name: Check Typos
+#   on:
+#     pull_request:
+#     push:
+#   jobs:
+#     typos:
+#       uses: llm-d/llm-d-infra/.github/workflows/reusable-typos.yml@main
+
+name: Typos Check (Reusable)
+
+on:
+  workflow_call:
+
+jobs:
+  typos:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Check typos
+        uses: crate-ci/typos@v1.43.0

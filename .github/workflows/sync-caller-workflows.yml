@@ -1,0 +1,83 @@
+# Sync Caller Workflows
+# When reusable workflows change, report which consuming repos still use
+# local copies and need migration.
+#
+# Runs on push to main (when reusable-*.yml changes) or manual dispatch.
+
+name: Sync Caller Workflows to Consuming Repos
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/reusable-*.yml'
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Preview changes without opening PRs'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CONSUMING_REPOS: |
+    llm-d/llm-d
+    llm-d/llm-d-inference-scheduler
+    llm-d/llm-d-kv-cache
+    llm-d/llm-d-inference-sim
+    llm-d/llm-d-benchmark
+    llm-d/llm-d-workload-variant-autoscaler
+
+jobs:
+  check-adoption:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout infra repo
+        uses: actions/checkout@v6
+
+      - name: Check adoption status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "## Reusable Workflow Adoption Report" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Repo | Workflow | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|------|----------|--------|" >> "$GITHUB_STEP_SUMMARY"
+
+          # Map reusable workflows to their expected caller filenames
+          declare -A WORKFLOW_MAP=(
+            ["reusable-prow-commands.yml"]="prow-github.yml"
+            ["reusable-prow-automerge.yml"]="prow-pr-automerge.yml"
+            ["reusable-prow-remove-lgtm.yml"]="prow-pr-remove-lgtm.yml"
+            ["reusable-stale.yml"]="stale.yaml"
+            ["reusable-unstale.yml"]="unstale.yaml"
+            ["reusable-signed-commits.yml"]="ci-signed-commits.yaml"
+            ["reusable-typos.yml"]="check-typos.yaml"
+            ["reusable-md-link-check.yml"]="md-link-check.yml"
+            ["reusable-non-main-gatekeeper.yml"]="non-main-gatekeeper.yml"
+          )
+
+          while IFS= read -r repo; do
+            [ -z "$repo" ] && continue
+            for reusable in "${!WORKFLOW_MAP[@]}"; do
+              caller="${WORKFLOW_MAP[$reusable]}"
+              # Check if workflow exists in the target repo
+              content=$(gh api "repos/$repo/contents/.github/workflows/$caller" --jq '.content' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+              if [ -z "$content" ]; then
+                continue  # workflow doesn't exist in this repo
+              fi
+              if echo "$content" | grep -q "llm-d/llm-d-infra"; then
+                echo "| $repo | $caller | Adopted |" >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "| $repo | $caller | **Local copy** |" >> "$GITHUB_STEP_SUMMARY"
+              fi
+            done
+          done <<< "$CONSUMING_REPOS"
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Repos using **Local copy** should migrate to the shared reusable workflow." >> "$GITHUB_STEP_SUMMARY"
+          echo "See [migration instructions](https://github.com/llm-d/llm-d-infra#migrating-existing-repos)." >> "$GITHUB_STEP_SUMMARY"

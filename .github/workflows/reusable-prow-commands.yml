@@ -1,0 +1,54 @@
+# Reusable Prow Commands workflow
+# Handles /assign, /lgtm, /approve, /hold, etc. on issue/PR comments
+#
+# Usage in consuming repo:
+#   name: Prow Commands
+#   on:
+#     issue_comment:
+#       types: [created]
+#   jobs:
+#     prow:
+#       uses: llm-d/llm-d-infra/.github/workflows/reusable-prow-commands.yml@main
+#       permissions:
+#         issues: write
+#         pull-requests: write
+
+name: Prow Commands (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      prow-commands:
+        description: 'Newline-separated list of prow commands to enable'
+        required: false
+        type: string
+        default: |
+          /assign
+          /unassign
+          /approve
+          /retitle
+          /area
+          /kind
+          /priority
+          /remove
+          /lgtm
+          /close
+          /reopen
+          /lock
+          /milestone
+          /hold
+          /cc
+          /uncc
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  prow-execute:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: jpmcb/prow-github-actions@v2.0.0
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+          prow-commands: "${{ inputs.prow-commands }}"

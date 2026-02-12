@@ -1,0 +1,41 @@
+# Reusable Unstale workflow
+# Removes lifecycle/stale and lifecycle/rotten labels when issues get activity
+#
+# Usage in consuming repo:
+#   name: Unstale Issues
+#   on:
+#     issues:
+#       types: [reopened]
+#     issue_comment:
+#       types: [created]
+#   jobs:
+#     unstale:
+#       uses: llm-d/llm-d-infra/.github/workflows/reusable-unstale.yml@main
+#       permissions:
+#         issues: write
+
+name: Unstale Issues (Reusable)
+
+on:
+  workflow_call:
+
+permissions:
+  issues: write
+
+jobs:
+  remove-stale:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.issue.state == 'open' &&
+      (contains(github.event.issue.labels.*.name, 'lifecycle/stale') ||
+       contains(github.event.issue.labels.*.name, 'lifecycle/rotten'))
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Remove stale labels
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Removing 'stale' label from issue #${{ github.event.issue.number }}"
+          gh issue edit ${{ github.event.issue.number }} --remove-label "lifecycle/stale,lifecycle/rotten"
