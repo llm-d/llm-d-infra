@@ -324,6 +324,9 @@ jobs:
           VLLM_MAX_NUM_SEQS: ${{ inputs.max_num_seqs }}
           DECODE_REPLICAS: "1"
           WELL_LIT_PATH_NAME: ${{ inputs.guide_name }}
+          # Align helmfile release name postfix with guide name so that
+          # deployment names (ms-<postfix>-llm-d-modelservice-decode) are predictable
+          RELEASE_NAME_POSTFIX: ${{ inputs.guide_name }}
           # WVA deployment flag — only deploy WVA for workload-autoscaling guide
           DEPLOY_WVA: ${{ inputs.deploy_wva && 'true' || 'false' }}
           DEPLOY_PROMETHEUS: ${{ inputs.deploy_wva && 'true' || 'false' }}
