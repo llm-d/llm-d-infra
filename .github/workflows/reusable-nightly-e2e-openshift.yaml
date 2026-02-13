@@ -284,6 +284,23 @@ jobs:
             -l app.kubernetes.io/name=workload-variant-autoscaler,app.kubernetes.io/instance="$WVA_RELEASE_NAME" \
             --ignore-not-found || true
 
+          # Clean up orphaned cluster-scoped WVA resources from ANY release
+          # whose owning namespace no longer exists. These block fresh installs
+          # because Helm refuses to adopt resources owned by a different release.
+          # Safety: only deletes resources whose release-namespace is gone — active
+          # installations (where the namespace still exists) are never touched.
+          echo "Checking for orphaned cluster-scoped WVA resources..."
+          for kind in clusterrole clusterrolebinding; do
+            for resource in $(kubectl get "$kind" -l app.kubernetes.io/name=workload-variant-autoscaler -o jsonpath='{range .items[*]}{.metadata.name}={.metadata.annotations.meta\.helm\.sh/release-namespace}{"\n"}{end}' 2>/dev/null); do
+              name="${resource%%=*}"
+              ns="${resource##*=}"
+              if [ -n "$ns" ] && ! kubectl get namespace "$ns" &>/dev/null; then
+                echo "  Deleting orphaned $kind/$name (owning namespace '$ns' no longer exists)"
+                kubectl delete "$kind" "$name" --ignore-not-found || true
+              fi
+            done
+          done
+
           echo "Pre-cleanup complete"
 
       - name: Apply latest CRDs
@@ -410,9 +427,22 @@ jobs:
           echo "Deleting namespace $WVA_NAMESPACE..."
           kubectl delete namespace "$WVA_NAMESPACE" --ignore-not-found --timeout=120s || true
 
-          # Clean up cluster-scoped WVA resources
+          # Clean up cluster-scoped WVA resources owned by this nightly's release
           kubectl delete clusterrole,clusterrolebinding \
             -l app.kubernetes.io/name=workload-variant-autoscaler,app.kubernetes.io/instance="$WVA_RELEASE_NAME" \
             --ignore-not-found || true
+
+          # Also clean up cluster-scoped resources owned by the nightly namespaces
+          # (covers helmfile-created resources whose instance label differs from WVA_RELEASE_NAME)
+          for kind in clusterrole clusterrolebinding; do
+            for resource in $(kubectl get "$kind" -l app.kubernetes.io/name=workload-variant-autoscaler -o jsonpath='{range .items[*]}{.metadata.name}={.metadata.annotations.meta\.helm\.sh/release-namespace}{"\n"}{end}' 2>/dev/null); do
+              name="${resource%%=*}"
+              ns="${resource##*=}"
+              if [ "$ns" = "$LLMD_NAMESPACE" ] || [ "$ns" = "$WVA_NAMESPACE" ]; then
+                echo "  Deleting $kind/$name (owned by nightly namespace '$ns')"
+                kubectl delete "$kind" "$name" --ignore-not-found || true
+              fi
+            done
+          done
 
           echo "Nightly cleanup complete"
