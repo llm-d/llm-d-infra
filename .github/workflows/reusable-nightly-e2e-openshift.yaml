@@ -333,6 +333,11 @@ jobs:
           DEPLOY_HPA: ${{ inputs.deploy_wva && 'true' || 'false' }}
           # OpenShift uses built-in user-workload monitoring, not a separate namespace
           MONITORING_NAMESPACE: openshift-user-workload-monitoring
+          # Disable bearer token auth on WVA /metrics endpoint — OpenShift's
+          # user-workload-monitoring cannot authenticate with the controller-manager
+          # SA token (Token does not match server's copy). The endpoint is still
+          # only accessible within the cluster network.
+          WVA_METRICS_SECURE: "false"
         run: |
           echo "Deploying infrastructure for guide: $GUIDE_NAME (nightly)..."
           echo "  MODEL_ID: $MODEL_ID"
