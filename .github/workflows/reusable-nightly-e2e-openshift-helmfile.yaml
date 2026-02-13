@@ -111,7 +111,7 @@ on:
         description: 'Timeout for pods to become ready'
         required: false
         type: string
-        default: '15m'
+        default: '30m'
       pod_readiness_delay:
         description: 'Extra delay after pods are ready (for model loading)'
         required: false
