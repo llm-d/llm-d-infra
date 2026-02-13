@@ -256,7 +256,7 @@ jobs:
             if [ -f "$GUIDE_PATH/helmfile.yaml.gotmpl" ]; then
               echo "  Destroying helmfile releases..."
               cd "$GUIDE_PATH"
-              helmfile destroy -e "$HELMFILE_ENV" --args --ignore-not-found 2>/dev/null || true
+              helmfile destroy -e "$HELMFILE_ENV" --namespace "$NAMESPACE" --args --ignore-not-found 2>/dev/null || true
               cd "$GITHUB_WORKSPACE"
             fi
 
@@ -301,6 +301,7 @@ jobs:
           echo "Deploying $GUIDE_NAME via helmfile (env: $HELMFILE_ENV)..."
           cd "$GUIDE_PATH"
           helmfile apply -e "$HELMFILE_ENV" \
+            --namespace "$NAMESPACE" \
             --set "gateway.service.type=LoadBalancer" \
             --skip-schema-validation \
             ${{ inputs.helmfile_args }} \
@@ -465,7 +466,7 @@ jobs:
           if [ -f "$GUIDE_PATH/helmfile.yaml.gotmpl" ]; then
             echo "Destroying helmfile releases..."
             cd "$GUIDE_PATH"
-            helmfile destroy -e "$HELMFILE_ENV" 2>/dev/null || true
+            helmfile destroy -e "$HELMFILE_ENV" --namespace "$NAMESPACE" 2>/dev/null || true
             cd "$GITHUB_WORKSPACE"
           fi
 
