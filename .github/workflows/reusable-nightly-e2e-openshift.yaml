@@ -114,7 +114,7 @@ on:
 
 jobs:
   nightly-e2e:
-    runs-on: [self-hosted, openshift]
+    runs-on: [self-hosted, openshift, pok-prod]
     env:
       MODEL_ID: ${{ inputs.model_id }}
       ACCELERATOR_TYPE: ${{ inputs.accelerator_type }}
