@@ -330,6 +330,8 @@ jobs:
           DEPLOY_PROMETHEUS_ADAPTER: ${{ inputs.deploy_wva && 'true' || 'false' }}
           DEPLOY_VA: ${{ inputs.deploy_wva && 'true' || 'false' }}
           DEPLOY_HPA: ${{ inputs.deploy_wva && 'true' || 'false' }}
+          # OpenShift uses built-in user-workload monitoring, not a separate namespace
+          MONITORING_NAMESPACE: openshift-user-workload-monitoring
         run: |
           echo "Deploying infrastructure for guide: $GUIDE_NAME (nightly)..."
           echo "  MODEL_ID: $MODEL_ID"
