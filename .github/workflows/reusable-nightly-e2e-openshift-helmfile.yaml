@@ -127,7 +127,7 @@ on:
 
 jobs:
   nightly-e2e:
-    runs-on: [self-hosted, openshift]
+    runs-on: [self-hosted, openshift, pok-prod]
     env:
       GUIDE_NAME: ${{ inputs.guide_name }}
       GUIDE_PATH: ${{ inputs.guide_path || format('guides/{0}', inputs.guide_name) }}
