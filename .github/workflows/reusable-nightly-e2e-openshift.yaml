@@ -291,9 +291,10 @@ jobs:
           # installations (where the namespace still exists) are never touched.
           echo "Checking for orphaned cluster-scoped WVA resources..."
           for kind in clusterrole clusterrolebinding; do
+            # Search by name pattern (not labels — helmfile deployments may use different labels)
             # Use jq to reliably extract annotation keys containing dots/slashes
-            kubectl get "$kind" -l app.kubernetes.io/name=workload-variant-autoscaler -o json 2>/dev/null | \
-              jq -r '.items[] | "\(.metadata.name)\t\(.metadata.annotations["meta.helm.sh/release-namespace"] // "")"' 2>/dev/null | \
+            kubectl get "$kind" -o json 2>/dev/null | \
+              jq -r '.items[] | select(.metadata.name | contains("workload-variant-autoscaler")) | "\(.metadata.name)\t\(.metadata.annotations["meta.helm.sh/release-namespace"] // "")"' 2>/dev/null | \
               while IFS=$'\t' read -r name ns; do
                 if [ -n "$ns" ] && ! kubectl get namespace "$ns" &>/dev/null; then
                   echo "  Deleting orphaned $kind/$name (owning namespace '$ns' no longer exists)"
@@ -436,8 +437,8 @@ jobs:
           # Also clean up cluster-scoped resources owned by the nightly namespaces
           # (covers helmfile-created resources whose instance label differs from WVA_RELEASE_NAME)
           for kind in clusterrole clusterrolebinding; do
-            kubectl get "$kind" -l app.kubernetes.io/name=workload-variant-autoscaler -o json 2>/dev/null | \
-              jq -r '.items[] | "\(.metadata.name)\t\(.metadata.annotations["meta.helm.sh/release-namespace"] // "")"' 2>/dev/null | \
+            kubectl get "$kind" -o json 2>/dev/null | \
+              jq -r '.items[] | select(.metadata.name | contains("workload-variant-autoscaler")) | "\(.metadata.name)\t\(.metadata.annotations["meta.helm.sh/release-namespace"] // "")"' 2>/dev/null | \
               while IFS=$'\t' read -r name ns; do
                 if [ "$ns" = "$LLMD_NAMESPACE" ] || [ "$ns" = "$WVA_NAMESPACE" ]; then
                   echo "  Deleting $kind/$name (owned by nightly namespace '$ns')"
