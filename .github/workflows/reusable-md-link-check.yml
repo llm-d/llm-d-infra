@@ -1,7 +1,8 @@
-# Reusable Markdown Link Check workflow
-# Validates links in markdown files using lychee
+# LEGACY — Replaced by link-checker.md (gh-aw agentic workflow)
+# This reusable workflow is kept as a fallback. New repos should NOT use this.
+# See link-checker.md for the AI-powered replacement.
 #
-# Usage in consuming repo:
+# Previous usage in consuming repo:
 #   name: Markdown Link Check
 #   on:
 #     push:
@@ -13,7 +14,7 @@
 #     links:
 #       uses: llm-d/llm-d-infra/.github/workflows/reusable-md-link-check.yml@main
 
-name: Markdown Link Check (Reusable)
+name: "[LEGACY] Markdown Link Check (Reusable)"
 
 on:
   workflow_call:
