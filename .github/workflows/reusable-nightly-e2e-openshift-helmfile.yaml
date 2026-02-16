@@ -20,107 +20,107 @@ on:
     inputs:
       # --- Guide configuration ---
       guide_name:
-        description: 'Guide directory name under guides/ in llm-d/llm-d'
+        description: "Guide directory name under guides/ in llm-d/llm-d"
         required: true
         type: string
       guide_path:
-        description: 'Override path to guide directory (default: guides/<guide_name>)'
+        description: "Override path to guide directory (default: guides/<guide_name>)"
         required: false
         type: string
-        default: ''
+        default: ""
       namespace:
-        description: 'Kubernetes namespace for the deployment'
+        description: "Kubernetes namespace for the deployment"
         required: true
         type: string
       helmfile_env:
-        description: 'Helmfile environment (istio, kgateway, etc.)'
+        description: "Helmfile environment (istio, kgateway, etc.)"
         required: false
         type: string
-        default: 'istio'
+        default: "istio"
       gateway_type:
-        description: 'Gateway provider type (istio, kgateway, agentgateway)'
+        description: "Gateway provider type (istio, kgateway, agentgateway)"
         required: false
         type: string
-        default: 'istio'
+        default: "istio"
 
       # --- Repository ---
       llm_d_ref:
-        description: 'Git ref for llm-d/llm-d checkout (default: main)'
+        description: "Git ref for llm-d/llm-d checkout (default: main)"
         required: false
         type: string
-        default: 'main'
+        default: "main"
 
       # --- GPU requirements ---
       required_gpus:
-        description: 'Minimum GPUs required (0 for simulated)'
+        description: "Minimum GPUs required (0 for simulated)"
         required: false
         type: number
         default: 2
       recommended_gpus:
-        description: 'Recommended GPUs for scale-up headroom'
+        description: "Recommended GPUs for scale-up headroom"
         required: false
         type: number
         default: 4
 
       # --- Model & accelerator ---
       model_id:
-        description: 'Model ID (empty = auto-discover from guide)'
+        description: "Model ID (empty = auto-discover from guide)"
         required: false
         type: string
-        default: ''
+        default: ""
       accelerator_type:
-        description: 'Accelerator type (H100, A100, L40S)'
+        description: "Accelerator type (H100, A100, L40S)"
         required: false
         type: string
-        default: 'A100'
+        default: "H100"
 
       # --- Deployment configuration ---
       helmfile_args:
-        description: 'Extra args passed to helmfile apply (e.g. --set key=val)'
+        description: "Extra args passed to helmfile apply (e.g. --set key=val)"
         required: false
         type: string
-        default: ''
+        default: ""
       httproute_file:
-        description: 'HTTPRoute file to apply (empty = skip)'
+        description: "HTTPRoute file to apply (empty = skip)"
         required: false
         type: string
-        default: 'httproute.yaml'
+        default: "httproute.yaml"
       install_gateway_provider:
-        description: 'Install gateway provider prerequisites'
+        description: "Install gateway provider prerequisites"
         required: false
         type: boolean
         default: true
       pre_deploy_script:
-        description: 'Script to run before deployment (e.g. slim transforms)'
+        description: "Script to run before deployment (e.g. slim transforms)"
         required: false
         type: string
-        default: ''
+        default: ""
       custom_deploy_script:
-        description: 'Custom deploy script — replaces helmfile apply (for kustomize/helm guides)'
+        description: "Custom deploy script — replaces helmfile apply (for kustomize/helm guides)"
         required: false
         type: string
-        default: ''
+        default: ""
 
       # --- Test configuration ---
       e2e_validate_args:
-        description: 'Extra args for e2e-validate.sh (e.g. -m model-id)'
+        description: "Extra args for e2e-validate.sh (e.g. -m model-id)"
         required: false
         type: string
-        default: ''
+        default: ""
       pod_wait_timeout:
-        description: 'Timeout for pods to become ready'
+        description: "Timeout for pods to become ready"
         required: false
         type: string
-        default: '30m'
+        default: "30m"
       pod_readiness_delay:
-        description: 'Extra delay after pods are ready (for model loading)'
+        description: "Extra delay after pods are ready (for model loading)"
         required: false
         type: number
         default: 0
 
       # --- Cleanup ---
       skip_cleanup:
-        description: 'Skip cleanup after tests (for debugging)'
+        description: "Skip cleanup after tests (for debugging)"
         required: false
         type: boolean
         default: false

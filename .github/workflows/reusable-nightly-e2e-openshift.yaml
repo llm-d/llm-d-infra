@@ -47,7 +47,7 @@ on:
         description: 'Accelerator type (H100, A100, L40S)'
         required: false
         type: string
-        default: 'A100'
+        default: 'H100'
 
       # --- GPU requirements ---
       required_gpus:
