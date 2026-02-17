@@ -300,9 +300,22 @@ jobs:
             echo "**No GPUs required** for this guide (simulated accelerators)" >> $GITHUB_STEP_SUMMARY
           elif [ "$AVAILABLE_GPUS" -lt "$REQUIRED_GPUS" ]; then
             if [ "${{ inputs.allow_gpu_preemption }}" = "true" ]; then
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "**Insufficient GPUs** — need $REQUIRED_GPUS but only $AVAILABLE_GPUS available. Proceeding anyway (preemption enabled)." >> $GITHUB_STEP_SUMMARY
-              echo "::warning::Insufficient GPUs ($AVAILABLE_GPUS/$REQUIRED_GPUS) but allow_gpu_preemption=true — relying on Kubernetes preemption"
+              # Check if GPU-consuming pods have negative priority (safe to preempt)
+              NEG_PRIORITY_GPU_PODS=$(kubectl get pods --all-namespaces -o json | \
+                jq '[.items[] | select(
+                  (.spec.containers[]?.resources.limits["nvidia.com/gpu"] // "0" | tonumber) > 0
+                  and (.spec.priority // 0) < 0
+                )] | length')
+              if [ "$NEG_PRIORITY_GPU_PODS" -gt 0 ]; then
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "**Insufficient GPUs** — need $REQUIRED_GPUS but only $AVAILABLE_GPUS available. Found $NEG_PRIORITY_GPU_PODS GPU pod(s) with negative priority — proceeding (Kubernetes will preempt them)." >> $GITHUB_STEP_SUMMARY
+                echo "::warning::Insufficient GPUs ($AVAILABLE_GPUS/$REQUIRED_GPUS) but $NEG_PRIORITY_GPU_PODS pod(s) with negative priority can be preempted"
+              else
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "**Insufficient GPUs** — need $REQUIRED_GPUS but only $AVAILABLE_GPUS available. No negative-priority GPU pods found to preempt." >> $GITHUB_STEP_SUMMARY
+                echo "::error::Insufficient GPUs: need $REQUIRED_GPUS, have $AVAILABLE_GPUS. No preemptable (negative priority) pods found."
+                exit 1
+              fi
             else
               echo "" >> $GITHUB_STEP_SUMMARY
               echo "**Insufficient GPUs** — need $REQUIRED_GPUS but only $AVAILABLE_GPUS available." >> $GITHUB_STEP_SUMMARY
