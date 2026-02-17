@@ -459,7 +459,7 @@ jobs:
       - name: Deploy guide via WVA install.sh
         if: inputs.deploy_wva
         env:
-          ENVIRONMENT: default
+          ENVIRONMENT: kubernetes
           INSTALL_GATEWAY_CTRLPLANE: "false"
           BENCHMARK_MODE: "false"
           E2E_TESTS_ENABLED: "true"
