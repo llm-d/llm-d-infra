@@ -1,0 +1,478 @@
+name: Reusable - Nightly E2E CKS (Helmfile)
+
+# Reusable workflow for nightly e2e testing of helmfile-based llm-d guides
+# on CoreWeave Kubernetes (CKS). Called by the llm-d/llm-d repo to deploy
+# a guide's stack via helmfile and run the e2e-validate.sh smoke-test suite.
+#
+# Usage from a caller workflow:
+#
+#   jobs:
+#     nightly:
+#       uses: llm-d/llm-d-infra/.github/workflows/reusable-nightly-e2e-cks-helmfile.yaml@main
+#       with:
+#         guide_name: inference-scheduling
+#         namespace: llm-d-nightly-inference
+#         helmfile_env: istio
+#       secrets: inherit
+
+on:
+  workflow_call:
+    inputs:
+      # --- Guide configuration ---
+      guide_name:
+        description: 'Guide directory name under guides/ in llm-d/llm-d'
+        required: true
+        type: string
+      guide_path:
+        description: 'Override path to guide directory (default: guides/<guide_name>)'
+        required: false
+        type: string
+        default: ''
+      namespace:
+        description: 'Kubernetes namespace for the deployment'
+        required: true
+        type: string
+      helmfile_env:
+        description: 'Helmfile environment (istio, kgateway, etc.)'
+        required: false
+        type: string
+        default: 'istio'
+      gateway_type:
+        description: 'Gateway provider type (istio, kgateway, agentgateway)'
+        required: false
+        type: string
+        default: 'istio'
+
+      # --- Repository ---
+      llm_d_ref:
+        description: 'Git ref for llm-d/llm-d checkout (default: main)'
+        required: false
+        type: string
+        default: 'main'
+
+      # --- GPU requirements ---
+      required_gpus:
+        description: 'Minimum GPUs required (0 for simulated)'
+        required: false
+        type: number
+        default: 2
+      recommended_gpus:
+        description: 'Recommended GPUs for scale-up headroom'
+        required: false
+        type: number
+        default: 4
+
+      # --- Model & accelerator ---
+      model_id:
+        description: 'Model ID (empty = auto-discover from guide)'
+        required: false
+        type: string
+        default: ''
+      accelerator_type:
+        description: 'Accelerator type (H100, H200, A100)'
+        required: false
+        type: string
+        default: 'H100'
+
+      # --- Deployment configuration ---
+      helmfile_args:
+        description: 'Extra args passed to helmfile apply (e.g. --set key=val)'
+        required: false
+        type: string
+        default: ''
+      httproute_file:
+        description: 'HTTPRoute file to apply (empty = skip)'
+        required: false
+        type: string
+        default: 'httproute.yaml'
+      install_gateway_provider:
+        description: 'Install gateway provider prerequisites'
+        required: false
+        type: boolean
+        default: true
+      pre_deploy_script:
+        description: 'Script to run before deployment (e.g. slim transforms)'
+        required: false
+        type: string
+        default: ''
+      custom_deploy_script:
+        description: 'Custom deploy script — replaces helmfile apply (for kustomize/helm guides)'
+        required: false
+        type: string
+        default: ''
+
+      # --- Test configuration ---
+      e2e_validate_args:
+        description: 'Extra args for e2e-validate.sh (e.g. -m model-id)'
+        required: false
+        type: string
+        default: ''
+      pod_wait_timeout:
+        description: 'Timeout for pods to become ready'
+        required: false
+        type: string
+        default: '30m'
+      pod_readiness_delay:
+        description: 'Extra delay after pods are ready (for model loading)'
+        required: false
+        type: number
+        default: 0
+
+      # --- Cleanup ---
+      skip_cleanup:
+        description: 'Skip cleanup after tests (for debugging)'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  nightly-e2e:
+    runs-on: [self-hosted, linux, cks]
+    env:
+      GUIDE_NAME: ${{ inputs.guide_name }}
+      GUIDE_PATH: ${{ inputs.guide_path || format('guides/{0}', inputs.guide_name) }}
+      NAMESPACE: ${{ inputs.namespace }}
+      HELMFILE_ENV: ${{ inputs.helmfile_env }}
+      GATEWAY_TYPE: ${{ inputs.gateway_type }}
+      ACCELERATOR_TYPE: ${{ inputs.accelerator_type }}
+    steps:
+      - name: Checkout llm-d/llm-d
+        uses: actions/checkout@v4
+        with:
+          repository: llm-d/llm-d
+          ref: ${{ inputs.llm_d_ref }}
+
+      - name: Install prerequisites (kubectl, helm, helmfile, yq)
+        run: |
+          # Install standard llm-d prerequisites (kubectl, helm, helmfile, yq)
+          ./guides/prereq/client-setup/install-deps.sh
+
+          # Install jq if not present
+          if ! command -v jq &>/dev/null; then
+            sudo apt-get update && sudo apt-get install -y jq
+          fi
+
+      - name: Verify cluster access
+        run: |
+          echo "Verifying CKS cluster access..."
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: Check GPU availability
+        id: gpu-check
+        env:
+          REQUIRED_GPUS: ${{ inputs.required_gpus }}
+          RECOMMENDED_GPUS: ${{ inputs.recommended_gpus }}
+        run: |
+          echo "Checking GPU availability for nightly e2e ($GUIDE_NAME)..."
+
+          TOTAL_GPUS=$(kubectl get nodes -o json | \
+            jq '[.items[].status.allocatable["nvidia.com/gpu"] // "0" | tonumber] | add // 0')
+
+          ALLOCATED_GPUS=$(kubectl get pods --all-namespaces -o json | \
+            jq '[.items[] | select(.status.phase == "Running" or .status.phase == "Pending") | .spec.containers[]?.resources.requests["nvidia.com/gpu"] // "0" | tonumber] | add // 0')
+
+          AVAILABLE_GPUS=$((TOTAL_GPUS - ALLOCATED_GPUS))
+
+          TOTAL_CPU=$(kubectl get nodes -o json | \
+            jq '[.items[].status.allocatable.cpu // "0" | if endswith("m") then (gsub("m$";"") | tonumber / 1000) else tonumber end] | add | floor')
+          TOTAL_MEM_KI=$(kubectl get nodes -o json | \
+            jq '[.items[].status.allocatable.memory // "0" | gsub("[^0-9]";"") | tonumber] | add')
+          TOTAL_MEM_GI=$((TOTAL_MEM_KI / 1048576))
+
+          NODE_COUNT=$(kubectl get nodes --no-headers | wc -l | tr -d ' ')
+          GPU_NODE_COUNT=$(kubectl get nodes -o json | \
+            jq '[.items[] | select((.status.allocatable["nvidia.com/gpu"] // "0" | tonumber) > 0)] | length')
+
+          echo "total_gpus=$TOTAL_GPUS" >> $GITHUB_OUTPUT
+          echo "allocated_gpus=$ALLOCATED_GPUS" >> $GITHUB_OUTPUT
+          echo "available_gpus=$AVAILABLE_GPUS" >> $GITHUB_OUTPUT
+
+          echo "## GPU Status — Nightly ($GUIDE_NAME on CKS)" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Total cluster GPUs | $TOTAL_GPUS |" >> $GITHUB_STEP_SUMMARY
+          echo "| Currently allocated | $ALLOCATED_GPUS |" >> $GITHUB_STEP_SUMMARY
+          echo "| Available | $AVAILABLE_GPUS |" >> $GITHUB_STEP_SUMMARY
+          echo "| Required (minimum) | $REQUIRED_GPUS |" >> $GITHUB_STEP_SUMMARY
+          echo "| Recommended (with scale-up) | $RECOMMENDED_GPUS |" >> $GITHUB_STEP_SUMMARY
+          echo "| Nodes | $NODE_COUNT ($GPU_NODE_COUNT with GPUs) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Total CPU | ${TOTAL_CPU} cores |" >> $GITHUB_STEP_SUMMARY
+          echo "| Total Memory | ${TOTAL_MEM_GI} Gi |" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$REQUIRED_GPUS" -eq 0 ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**No GPUs required** for this guide (simulated accelerators)" >> $GITHUB_STEP_SUMMARY
+          elif [ "$AVAILABLE_GPUS" -lt "$REQUIRED_GPUS" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Insufficient GPUs** — need $REQUIRED_GPUS but only $AVAILABLE_GPUS available." >> $GITHUB_STEP_SUMMARY
+            echo "::error::Insufficient GPUs: need $REQUIRED_GPUS, have $AVAILABLE_GPUS available"
+            exit 1
+          elif [ "$AVAILABLE_GPUS" -lt "$RECOMMENDED_GPUS" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Low GPU headroom** — $AVAILABLE_GPUS available (need $RECOMMENDED_GPUS for scale-up tests)." >> $GITHUB_STEP_SUMMARY
+            echo "::warning::Low GPU headroom: $AVAILABLE_GPUS available, $RECOMMENDED_GPUS recommended"
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**GPUs available** — $AVAILABLE_GPUS GPUs free ($REQUIRED_GPUS required, $RECOMMENDED_GPUS recommended)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Get HF token from cluster secret
+        run: |
+          echo "Reading HF token from cluster secret llm-d-hf-token in default namespace..."
+          if ! kubectl get secret llm-d-hf-token -n default &>/dev/null; then
+            echo "::error::Secret 'llm-d-hf-token' not found in default namespace"
+            exit 1
+          fi
+          HF_TOKEN=$(kubectl get secret llm-d-hf-token -n default -o jsonpath='{.data.HF_TOKEN}' | base64 -d)
+          if [ -z "$HF_TOKEN" ]; then
+            echo "::error::Secret 'llm-d-hf-token' exists but 'HF_TOKEN' key is empty or missing"
+            exit 1
+          fi
+          echo "::add-mask::$HF_TOKEN"
+          echo "HF_TOKEN=$HF_TOKEN" >> $GITHUB_ENV
+          echo "HF token retrieved successfully"
+
+      - name: Clean up previous nightly resources
+        run: |
+          echo "Cleaning up previous nightly resources for $GUIDE_NAME..."
+          echo "  NAMESPACE: $NAMESPACE"
+
+          if kubectl get namespace "$NAMESPACE" &>/dev/null; then
+            echo "=== Cleaning up namespace: $NAMESPACE ==="
+
+            # Destroy helmfile releases if helmfile.yaml.gotmpl exists
+            if [ -f "$GUIDE_PATH/helmfile.yaml.gotmpl" ]; then
+              echo "  Destroying helmfile releases..."
+              cd "$GUIDE_PATH"
+              helmfile destroy -e "$HELMFILE_ENV" --namespace "$NAMESPACE" --args --ignore-not-found 2>/dev/null || true
+              cd "$GITHUB_WORKSPACE"
+            fi
+
+            # Fallback: uninstall any remaining helm releases
+            for release in $(helm list -n "$NAMESPACE" -q 2>/dev/null); do
+              echo "  Uninstalling helm release: $release"
+              helm uninstall "$release" -n "$NAMESPACE" --ignore-not-found --wait --timeout 60s || true
+            done
+
+            # Delete HTTPRoutes and other resources
+            kubectl delete httproute --all -n "$NAMESPACE" --ignore-not-found || true
+            kubectl delete gateway --all -n "$NAMESPACE" --ignore-not-found || true
+
+            echo "  Deleting namespace: $NAMESPACE"
+            kubectl delete namespace "$NAMESPACE" --ignore-not-found --timeout=120s || true
+          else
+            echo "Namespace $NAMESPACE does not exist, skipping"
+          fi
+
+          echo "Pre-cleanup complete"
+
+      - name: Create namespace and HF token secret
+        run: |
+          echo "Creating namespace $NAMESPACE..."
+          kubectl create namespace "$NAMESPACE" || echo "Namespace already exists"
+
+          echo "Creating HF token secret in $NAMESPACE..."
+          kubectl create secret generic llm-d-hf-token \
+            --from-literal="HF_TOKEN=$HF_TOKEN" \
+            --namespace "$NAMESPACE" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Install gateway provider
+        if: inputs.install_gateway_provider
+        run: |
+          echo "Installing gateway provider dependencies..."
+          cd guides/prereq/gateway-provider
+          ./install-gateway-provider-dependencies.sh
+          helmfile apply -f "${GATEWAY_TYPE}.helmfile.yaml" 2>/dev/null || \
+            helmfile apply -e "${GATEWAY_TYPE}" 2>/dev/null || \
+            echo "::warning::Gateway provider helmfile not found for $GATEWAY_TYPE — may already be installed"
+          cd "$GITHUB_WORKSPACE"
+
+      - name: Wait for gateway control plane
+        if: inputs.install_gateway_provider
+        run: |
+          echo "Waiting for gateway control plane pods..."
+          kubectl wait --for=condition=ready pod \
+            --selector=app.kubernetes.io/managed-by=Helm \
+            --namespace "${GATEWAY_TYPE}-system" \
+            --timeout=300s 2>/dev/null || true
+
+      - name: Run pre-deploy script
+        if: inputs.pre_deploy_script != ''
+        run: |
+          echo "Running pre-deploy script..."
+          ${{ inputs.pre_deploy_script }}
+
+      - name: Deploy guide via helmfile
+        if: inputs.custom_deploy_script == ''
+        run: |
+          echo "Deploying $GUIDE_NAME via helmfile (env: $HELMFILE_ENV)..."
+          cd "$GUIDE_PATH"
+          helmfile apply -e "$HELMFILE_ENV" \
+            --namespace "$NAMESPACE" \
+            --skip-schema-validation \
+            ${{ inputs.helmfile_args }} \
+            | tee /tmp/helmfile-deploy.log
+          cd "$GITHUB_WORKSPACE"
+
+      - name: Deploy guide via custom script
+        if: inputs.custom_deploy_script != ''
+        run: |
+          echo "Deploying $GUIDE_NAME via custom script..."
+          ${{ inputs.custom_deploy_script }}
+
+      - name: Deploy HTTPRoute
+        if: inputs.httproute_file != '' && inputs.custom_deploy_script == ''
+        run: |
+          HTTPROUTE="${GUIDE_PATH}/${{ inputs.httproute_file }}"
+          if [ -f "$HTTPROUTE" ]; then
+            echo "Deploying HTTPRoute from $HTTPROUTE..."
+            kubectl apply -f "$HTTPROUTE" -n "$NAMESPACE"
+          else
+            echo "::warning::HTTPRoute file $HTTPROUTE not found — skipping"
+          fi
+
+      - name: Show deployment status
+        run: |
+          echo "=== Deployments ==="
+          kubectl get deployments -n "$NAMESPACE" || true
+          echo ""
+          echo "=== StatefulSets ==="
+          kubectl get statefulsets -n "$NAMESPACE" || true
+          echo ""
+          echo "=== LeaderWorkerSets ==="
+          kubectl get leaderworkersets -n "$NAMESPACE" 2>/dev/null || true
+          echo ""
+          echo "=== Pods ==="
+          kubectl get pods -n "$NAMESPACE" -o wide || true
+          echo ""
+          echo "=== Services ==="
+          kubectl get svc -n "$NAMESPACE" || true
+          echo ""
+          echo "=== Helm releases ==="
+          helm list -n "$NAMESPACE" || true
+          echo ""
+          echo "=== InferencePools ==="
+          kubectl get inferencepools -n "$NAMESPACE" || true
+          echo ""
+          echo "=== HTTPRoutes ==="
+          kubectl get httproutes -n "$NAMESPACE" || true
+          echo ""
+          echo "=== Gateways ==="
+          kubectl get gateway -n "$NAMESPACE" || true
+
+      - name: Wait for pods to be ready
+        env:
+          POD_WAIT_TIMEOUT: ${{ inputs.pod_wait_timeout }}
+          POD_READINESS_DELAY: ${{ inputs.pod_readiness_delay }}
+        run: |
+          echo "Waiting for all pods in $NAMESPACE to be ready (timeout: $POD_WAIT_TIMEOUT)..."
+          if ! kubectl wait pod \
+            --for=condition=Ready \
+            --all \
+            -n "$NAMESPACE" \
+            --timeout="$POD_WAIT_TIMEOUT"; then
+            echo "::error::Pods in $NAMESPACE did not become ready within $POD_WAIT_TIMEOUT"
+            echo "--- Pods ---"
+            kubectl get pods -n "$NAMESPACE" -o wide || true
+            echo "--- Describe non-ready pods ---"
+            for pod in $(kubectl get pods -n "$NAMESPACE" --field-selector=status.phase!=Running -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+              echo "=== Pod: $pod ==="
+              kubectl describe pod "$pod" -n "$NAMESPACE" || true
+              kubectl logs "$pod" -n "$NAMESPACE" --tail=50 || true
+            done
+            exit 1
+          fi
+
+          if [ "$POD_READINESS_DELAY" -gt 0 ]; then
+            echo "Extra readiness delay: ${POD_READINESS_DELAY}s (model loading)..."
+            sleep "$POD_READINESS_DELAY"
+          fi
+
+          echo "All pods in $NAMESPACE are ready"
+          kubectl get pods -n "$NAMESPACE"
+
+      - name: Wait for gateway to be ready
+        run: |
+          GATEWAY_NAME=$(kubectl get gateway -n "$NAMESPACE" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+          if [ -n "$GATEWAY_NAME" ]; then
+            echo "Waiting for gateway $GATEWAY_NAME to be programmed..."
+            kubectl wait "gateway/$GATEWAY_NAME" \
+              --for=condition=Programmed=True \
+              -n "$NAMESPACE" \
+              --timeout=300s || echo "::warning::Gateway not programmed within timeout"
+            kubectl get gateway -n "$NAMESPACE"
+          else
+            echo "No gateway resource found in $NAMESPACE — skipping wait"
+          fi
+
+      - name: Run E2E validation
+        run: |
+          echo "Running E2E validation for $GUIDE_NAME on CKS..."
+          cd .github/scripts/e2e
+          ./e2e-validate.sh -n "$NAMESPACE" ${{ inputs.e2e_validate_args }}
+
+      - name: Nightly summary
+        if: always()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Nightly E2E Results — $GUIDE_NAME (CKS)" >> $GITHUB_STEP_SUMMARY
+          echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Guide | $GUIDE_NAME |" >> $GITHUB_STEP_SUMMARY
+          echo "| Platform | CKS (CoreWeave) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Namespace | $NAMESPACE |" >> $GITHUB_STEP_SUMMARY
+          echo "| Helmfile Env | $HELMFILE_ENV |" >> $GITHUB_STEP_SUMMARY
+          echo "| Gateway Type | $GATEWAY_TYPE |" >> $GITHUB_STEP_SUMMARY
+          echo "| Accelerator | $ACCELERATOR_TYPE |" >> $GITHUB_STEP_SUMMARY
+          echo "| llm-d Ref | ${{ inputs.llm_d_ref }} |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Collect pod logs
+        if: always()
+        run: |
+          mkdir -p /tmp/pod-logs-$GUIDE_NAME
+          echo "Collecting pod logs from $NAMESPACE..."
+          for pod in $(kubectl get pods -n "$NAMESPACE" --no-headers -o custom-columns=":metadata.name" 2>/dev/null); do
+            kubectl logs --all-containers=true -n "$NAMESPACE" "$pod" > "/tmp/pod-logs-$GUIDE_NAME/${pod}.log" 2>&1 || true
+            kubectl describe pod -n "$NAMESPACE" "$pod" > "/tmp/pod-logs-$GUIDE_NAME/${pod}-describe.log" 2>&1 || true
+          done
+          cp /tmp/helmfile-deploy.log "/tmp/pod-logs-$GUIDE_NAME/" 2>/dev/null || true
+
+      - name: Upload pod logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-pod-logs-${{ inputs.guide_name }}-cks
+          path: /tmp/pod-logs-${{ inputs.guide_name }}
+          retention-days: 7
+
+      - name: Cleanup infrastructure
+        if: always() && inputs.skip_cleanup == false
+        run: |
+          echo "Cleaning up nightly test infrastructure for $GUIDE_NAME..."
+
+          # Destroy helmfile releases
+          if [ -f "$GUIDE_PATH/helmfile.yaml.gotmpl" ]; then
+            echo "Destroying helmfile releases..."
+            cd "$GUIDE_PATH"
+            helmfile destroy -e "$HELMFILE_ENV" --namespace "$NAMESPACE" 2>/dev/null || true
+            cd "$GITHUB_WORKSPACE"
+          fi
+
+          # Delete HTTPRoute
+          if [ -n "${{ inputs.httproute_file }}" ] && [ -f "$GUIDE_PATH/${{ inputs.httproute_file }}" ]; then
+            kubectl delete -f "$GUIDE_PATH/${{ inputs.httproute_file }}" -n "$NAMESPACE" --ignore-not-found || true
+          fi
+
+          # Fallback: uninstall remaining helm releases
+          for release in $(helm list -n "$NAMESPACE" -q 2>/dev/null); do
+            echo "  Uninstalling release: $release"
+            helm uninstall "$release" -n "$NAMESPACE" --ignore-not-found --wait --timeout 60s || true
+          done
+
+          # Delete namespace
+          echo "Deleting namespace $NAMESPACE..."
+          kubectl delete namespace "$NAMESPACE" --ignore-not-found --timeout=120s || true
+
+          echo "Nightly cleanup complete"
