@@ -317,13 +317,20 @@ jobs:
       - name: Override vLLM image
         if: inputs.image_override != ''
         run: |
+          set -euo pipefail
           echo "IMAGE_OVERRIDE=${{ inputs.image_override }}" >> $GITHUB_ENV
           echo "Overriding vLLM images to: ${{ inputs.image_override }}"
-          find "$GUIDE_PATH" -name "values*.yaml" -exec sh -c '
-            yq e "(.decode.containers[].image | select(test(\"ghcr.io/llm-d/llm-d-cuda\"))) = strenv(IMAGE_OVERRIDE)" -i "$1"
-            yq e "(.prefill.containers[].image | select(test(\"ghcr.io/llm-d/llm-d-cuda\"))) = strenv(IMAGE_OVERRIDE)" -i "$1"
-            yq e "(.containers[].image | select(test(\"ghcr.io/llm-d/llm-d-cuda\"))) = strenv(IMAGE_OVERRIDE)" -i "$1"
-          ' _ {} \;
+          VALUES_FILES=$(find "$GUIDE_PATH" -name "values*.yaml")
+          if [ -z "$VALUES_FILES" ]; then
+            echo "::warning::No values*.yaml files found in $GUIDE_PATH — image override will have no effect on values files"
+          else
+            for file in $VALUES_FILES; do
+              echo "Updating vLLM image in ${file}..."
+              yq e '(.decode.containers[].image | select(test("^ghcr\.io/llm-d/llm-d-cuda"))) = strenv(IMAGE_OVERRIDE)' -i "$file"
+              yq e '(.prefill.containers[].image | select(test("^ghcr\.io/llm-d/llm-d-cuda"))) = strenv(IMAGE_OVERRIDE)' -i "$file"
+              yq e '(.containers[].image | select(test("^ghcr\.io/llm-d/llm-d-cuda"))) = strenv(IMAGE_OVERRIDE)' -i "$file"
+            done
+          fi
         env:
           IMAGE_OVERRIDE: ${{ inputs.image_override }}
 
