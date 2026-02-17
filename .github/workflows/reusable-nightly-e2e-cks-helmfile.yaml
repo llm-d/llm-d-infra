@@ -61,6 +61,11 @@ on:
         required: false
         type: number
         default: 4
+      allow_gpu_preemption:
+        description: 'When true, proceed with deployment even if GPUs are unavailable (relies on Kubernetes preemption of lower-priority pods)'
+        required: false
+        type: boolean
+        default: false
 
       # --- Model & accelerator ---
       model_id:
@@ -294,10 +299,16 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**No GPUs required** for this guide (simulated accelerators)" >> $GITHUB_STEP_SUMMARY
           elif [ "$AVAILABLE_GPUS" -lt "$REQUIRED_GPUS" ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Insufficient GPUs** — need $REQUIRED_GPUS but only $AVAILABLE_GPUS available." >> $GITHUB_STEP_SUMMARY
-            echo "::error::Insufficient GPUs: need $REQUIRED_GPUS, have $AVAILABLE_GPUS available"
-            exit 1
+            if [ "${{ inputs.allow_gpu_preemption }}" = "true" ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "**Insufficient GPUs** — need $REQUIRED_GPUS but only $AVAILABLE_GPUS available. Proceeding anyway (preemption enabled)." >> $GITHUB_STEP_SUMMARY
+              echo "::warning::Insufficient GPUs ($AVAILABLE_GPUS/$REQUIRED_GPUS) but allow_gpu_preemption=true — relying on Kubernetes preemption"
+            else
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "**Insufficient GPUs** — need $REQUIRED_GPUS but only $AVAILABLE_GPUS available." >> $GITHUB_STEP_SUMMARY
+              echo "::error::Insufficient GPUs: need $REQUIRED_GPUS, have $AVAILABLE_GPUS available"
+              exit 1
+            fi
           elif [ "$AVAILABLE_GPUS" -lt "$RECOMMENDED_GPUS" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**Low GPU headroom** — $AVAILABLE_GPUS available (need $RECOMMENDED_GPUS for scale-up tests)." >> $GITHUB_STEP_SUMMARY
