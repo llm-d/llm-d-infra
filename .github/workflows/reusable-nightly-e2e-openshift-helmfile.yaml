@@ -100,6 +100,58 @@ on:
         required: false
         type: string
         default: ''
+      image_override:
+        description: 'Override vLLM container image (e.g. ghcr.io/llm-d/llm-d-cuda-dev:latest)'
+        required: false
+        type: string
+        default: ''
+
+      # --- WVA integration (optional — enables WVA e2e tests) ---
+      deploy_wva:
+        description: 'Deploy WVA controller via install.sh (enables WVA-specific steps)'
+        required: false
+        type: boolean
+        default: false
+      caller_repo:
+        description: 'Caller repo with deploy/install.sh and Go tests (e.g. llm-d/llm-d-workload-variant-autoscaler)'
+        required: false
+        type: string
+        default: ''
+      caller_ref:
+        description: 'Git ref for caller repo'
+        required: false
+        type: string
+        default: 'main'
+      wva_image_tag:
+        description: 'WVA controller image tag'
+        required: false
+        type: string
+        default: 'v0.5.0'
+      test_target:
+        description: 'Make target for Go tests (e.g. test-e2e-openshift) — replaces e2e-validate.sh when set'
+        required: false
+        type: string
+        default: ''
+      request_rate:
+        description: 'Request rate for WVA tests (req/s)'
+        required: false
+        type: string
+        default: '20'
+      num_prompts:
+        description: 'Number of prompts for WVA tests'
+        required: false
+        type: string
+        default: '3000'
+      max_num_seqs:
+        description: 'vLLM max batch size for WVA tests'
+        required: false
+        type: string
+        default: '1'
+      hpa_stabilization_seconds:
+        description: 'HPA stabilization window in seconds'
+        required: false
+        type: string
+        default: '240'
 
       # --- Test configuration ---
       e2e_validate_args:
@@ -135,6 +187,15 @@ jobs:
       HELMFILE_ENV: ${{ inputs.helmfile_env }}
       GATEWAY_TYPE: ${{ inputs.gateway_type }}
       ACCELERATOR_TYPE: ${{ inputs.accelerator_type }}
+      # WVA-specific env vars (only used when deploy_wva is true)
+      MODEL_ID: ${{ inputs.model_id }}
+      REQUEST_RATE: ${{ inputs.request_rate }}
+      NUM_PROMPTS: ${{ inputs.num_prompts }}
+      MAX_NUM_SEQS: ${{ inputs.max_num_seqs }}
+      HPA_STABILIZATION_SECONDS: ${{ inputs.hpa_stabilization_seconds }}
+      WVA_IMAGE_TAG: ${{ inputs.wva_image_tag }}
+      WVA_NAMESPACE: ${{ format('{0}-system', inputs.namespace) }}
+      WVA_RELEASE_NAME: ${{ format('wva-{0}', inputs.guide_name) }}
     steps:
       - name: Checkout llm-d/llm-d
         uses: actions/checkout@v4
@@ -142,8 +203,37 @@ jobs:
           repository: llm-d/llm-d
           ref: ${{ inputs.llm_d_ref }}
 
+      - name: Checkout caller repo (WVA)
+        if: inputs.deploy_wva && inputs.caller_repo != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.caller_repo }}
+          ref: ${{ inputs.caller_ref }}
+          path: _caller
+
+      - name: Extract Go version from caller repo
+        if: inputs.deploy_wva && inputs.caller_repo != ''
+        run: |
+          if [ -f _caller/go.mod ]; then
+            sed -En 's/^go (.*)$/GO_VERSION=\1/p' _caller/go.mod >> $GITHUB_ENV
+          else
+            echo "GO_VERSION=1.23" >> $GITHUB_ENV
+          fi
+
+      - name: Set up Go
+        if: inputs.deploy_wva && inputs.caller_repo != ''
+        uses: actions/setup-go@v5
+        with:
+          go-version: "${{ env.GO_VERSION }}"
+          cache-dependency-path: _caller/go.sum
+
       - name: Install prerequisites (kubectl, helm, helmfile, yq)
         run: |
+          # Install make (needed by WVA Go tests)
+          if ! command -v make &>/dev/null; then
+            sudo apt-get update && sudo apt-get install -y make
+          fi
+
           # Install oc (OpenShift CLI) — not included in install-deps.sh
           if ! command -v oc &>/dev/null; then
             curl -fsSL --retry 3 --retry-delay 5 -o /tmp/openshift-client-linux.tar.gz \
@@ -249,31 +339,69 @@ jobs:
           echo "Cleaning up previous nightly resources for $GUIDE_NAME..."
           echo "  NAMESPACE: $NAMESPACE"
 
-          if kubectl get namespace "$NAMESPACE" &>/dev/null; then
-            echo "=== Cleaning up namespace: $NAMESPACE ==="
+          # Build list of namespaces to clean (add WVA namespace if deploying WVA)
+          NAMESPACES="$NAMESPACE"
+          if [ "${{ inputs.deploy_wva }}" = "true" ] && [ -n "$WVA_NAMESPACE" ]; then
+            NAMESPACES="$NAMESPACE $WVA_NAMESPACE"
+            echo "  WVA_NAMESPACE: $WVA_NAMESPACE"
+          fi
 
-            # Destroy helmfile releases if helmfile.yaml.gotmpl exists
-            if [ -f "$GUIDE_PATH/helmfile.yaml.gotmpl" ]; then
-              echo "  Destroying helmfile releases..."
-              cd "$GUIDE_PATH"
-              helmfile destroy -e "$HELMFILE_ENV" --namespace "$NAMESPACE" --args --ignore-not-found 2>/dev/null || true
-              cd "$GITHUB_WORKSPACE"
+          for ns in $NAMESPACES; do
+            if kubectl get namespace "$ns" &>/dev/null; then
+              echo "=== Cleaning up namespace: $ns ==="
+
+              # Clean up WVA-specific resources
+              if [ "${{ inputs.deploy_wva }}" = "true" ]; then
+                echo "  Removing HPAs and VAs..."
+                kubectl delete hpa -n "$ns" -l app.kubernetes.io/name=workload-variant-autoscaler --ignore-not-found || true
+                kubectl delete variantautoscaling -n "$ns" -l app.kubernetes.io/name=workload-variant-autoscaler --ignore-not-found || true
+              fi
+
+              # Destroy helmfile releases if helmfile.yaml.gotmpl exists
+              if [ -f "$GUIDE_PATH/helmfile.yaml.gotmpl" ]; then
+                echo "  Destroying helmfile releases..."
+                cd "$GUIDE_PATH"
+                helmfile destroy -e "$HELMFILE_ENV" --namespace "$ns" --args --ignore-not-found 2>/dev/null || true
+                cd "$GITHUB_WORKSPACE"
+              fi
+
+              # Fallback: uninstall any remaining helm releases
+              for release in $(helm list -n "$ns" -q 2>/dev/null); do
+                echo "  Uninstalling helm release: $release"
+                helm uninstall "$release" -n "$ns" --ignore-not-found --wait --timeout 60s || true
+              done
+
+              # Delete HTTPRoutes and other resources
+              kubectl delete httproute --all -n "$ns" --ignore-not-found || true
+              kubectl delete gateway --all -n "$ns" --ignore-not-found || true
+
+              echo "  Deleting namespace: $ns"
+              kubectl delete namespace "$ns" --ignore-not-found --timeout=120s || true
+            else
+              echo "Namespace $ns does not exist, skipping"
             fi
+          done
 
-            # Fallback: uninstall any remaining helm releases
-            for release in $(helm list -n "$NAMESPACE" -q 2>/dev/null); do
-              echo "  Uninstalling helm release: $release"
-              helm uninstall "$release" -n "$NAMESPACE" --ignore-not-found --wait --timeout 60s || true
+          # Clean up cluster-scoped WVA resources from previous nightly
+          if [ "${{ inputs.deploy_wva }}" = "true" ]; then
+            echo "Removing cluster-scoped WVA resources for release $WVA_RELEASE_NAME..."
+            kubectl delete clusterrole,clusterrolebinding \
+              -l app.kubernetes.io/name=workload-variant-autoscaler,app.kubernetes.io/instance="$WVA_RELEASE_NAME" \
+              --ignore-not-found || true
+
+            # Clean up orphaned cluster-scoped WVA resources whose owning
+            # namespace no longer exists
+            echo "Cleaning up orphaned cluster-scoped WVA resources..."
+            for kind in clusterrole clusterrolebinding; do
+              kubectl get "$kind" -o json 2>/dev/null | \
+                jq -r '.items[] | select(.metadata.name | contains("workload-variant-autoscaler")) | "\(.metadata.name)\t\(.metadata.annotations["meta.helm.sh/release-namespace"] // "")"' 2>/dev/null | \
+                while IFS=$'\t' read -r name ns; do
+                  if [ -n "$ns" ] && ! kubectl get namespace "$ns" &>/dev/null; then
+                    echo "  Deleting orphaned $kind/$name (owning namespace '$ns' no longer exists)"
+                    kubectl delete "$kind" "$name" --ignore-not-found || true
+                  fi
+                done
             done
-
-            # Delete HTTPRoutes and other resources
-            kubectl delete httproute --all -n "$NAMESPACE" --ignore-not-found || true
-            kubectl delete gateway --all -n "$NAMESPACE" --ignore-not-found || true
-
-            echo "  Deleting namespace: $NAMESPACE"
-            kubectl delete namespace "$NAMESPACE" --ignore-not-found --timeout=120s || true
-          else
-            echo "Namespace $NAMESPACE does not exist, skipping"
           fi
 
           echo "Pre-cleanup complete"
@@ -309,6 +437,32 @@ jobs:
             --namespace "${GATEWAY_TYPE}-system" \
             --timeout=300s 2>/dev/null || true
 
+      - name: Override vLLM image
+        if: inputs.image_override != ''
+        run: |
+          set -euo pipefail
+          echo "IMAGE_OVERRIDE=${{ inputs.image_override }}" >> $GITHUB_ENV
+          echo "Overriding vLLM images to: ${{ inputs.image_override }}"
+          VALUES_FILES=$(find "$GUIDE_PATH" -name "values*.yaml")
+          if [ -z "$VALUES_FILES" ]; then
+            echo "::warning::No values*.yaml files found in $GUIDE_PATH — image override will have no effect on values files"
+          else
+            for file in $VALUES_FILES; do
+              echo "Updating vLLM image in ${file}..."
+              yq e '(.decode.containers[].image | select(test("^ghcr\.io/llm-d/llm-d-cuda"))) = strenv(IMAGE_OVERRIDE)' -i "$file"
+              yq e '(.prefill.containers[].image | select(test("^ghcr\.io/llm-d/llm-d-cuda"))) = strenv(IMAGE_OVERRIDE)' -i "$file"
+              yq e '(.containers[].image | select(test("^ghcr\.io/llm-d/llm-d-cuda"))) = strenv(IMAGE_OVERRIDE)' -i "$file"
+            done
+          fi
+        env:
+          IMAGE_OVERRIDE: ${{ inputs.image_override }}
+
+      - name: Apply latest WVA CRDs
+        if: inputs.deploy_wva
+        run: |
+          echo "Applying latest VariantAutoscaling CRD..."
+          kubectl apply -f _caller/charts/workload-variant-autoscaler/crds/
+
       - name: Run pre-deploy script
         if: inputs.pre_deploy_script != ''
         run: |
@@ -319,9 +473,46 @@ jobs:
         run: |
           echo "Adding openshift.io/user-monitoring label for Prometheus scraping..."
           kubectl label namespace "$NAMESPACE" openshift.io/user-monitoring=true --overwrite || true
+          if [ "${{ inputs.deploy_wva }}" = "true" ] && [ -n "$WVA_NAMESPACE" ]; then
+            kubectl create namespace "$WVA_NAMESPACE" 2>/dev/null || true
+            kubectl label namespace "$WVA_NAMESPACE" openshift.io/user-monitoring=true --overwrite || true
+          fi
+
+      - name: Deploy guide via WVA install.sh
+        if: inputs.deploy_wva
+        env:
+          ENVIRONMENT: openshift
+          INSTALL_GATEWAY_CTRLPLANE: "false"
+          BENCHMARK_MODE: "false"
+          E2E_TESTS_ENABLED: "true"
+          NAMESPACE_SCOPED: "false"
+          LLMD_NS: ${{ inputs.namespace }}
+          WVA_NS: ${{ env.WVA_NAMESPACE }}
+          CONTROLLER_INSTANCE: ${{ env.WVA_RELEASE_NAME }}
+          VLLM_MAX_NUM_SEQS: ${{ inputs.max_num_seqs }}
+          DECODE_REPLICAS: "1"
+          WELL_LIT_PATH_NAME: ${{ inputs.guide_name }}
+          RELEASE_NAME_POSTFIX: ${{ inputs.guide_name }}
+          DEPLOY_WVA: "true"
+          DEPLOY_PROMETHEUS: "true"
+          DEPLOY_PROMETHEUS_ADAPTER: "true"
+          DEPLOY_VA: "true"
+          DEPLOY_HPA: "true"
+          MONITORING_NAMESPACE: openshift-user-workload-monitoring
+          WVA_METRICS_SECURE: "false"
+        run: |
+          echo "Deploying $GUIDE_NAME via WVA install.sh..."
+          echo "  MODEL_ID: $MODEL_ID"
+          echo "  ACCELERATOR_TYPE: $ACCELERATOR_TYPE"
+          echo "  LLMD_NS: $LLMD_NS"
+          echo "  WVA_NS: $WVA_NS"
+          echo "  WVA_RELEASE_NAME: $WVA_RELEASE_NAME"
+          cd _caller
+          ./deploy/install.sh --model "$MODEL_ID" --accelerator "$ACCELERATOR_TYPE" --release-name "$WVA_RELEASE_NAME" --environment openshift
+          cd "$GITHUB_WORKSPACE"
 
       - name: Deploy guide via helmfile
-        if: inputs.custom_deploy_script == ''
+        if: inputs.custom_deploy_script == '' && !inputs.deploy_wva
         run: |
           echo "Deploying $GUIDE_NAME via helmfile (env: $HELMFILE_ENV)..."
           cd "$GUIDE_PATH"
@@ -333,7 +524,7 @@ jobs:
           cd "$GITHUB_WORKSPACE"
 
       - name: Deploy guide via custom script
-        if: inputs.custom_deploy_script != ''
+        if: inputs.custom_deploy_script != '' && !inputs.deploy_wva
         run: |
           echo "Deploying $GUIDE_NAME via custom script..."
           ${{ inputs.custom_deploy_script }}
@@ -401,6 +592,13 @@ jobs:
             exit 1
           fi
 
+          # Also wait for WVA namespace pods
+          if [ "${{ inputs.deploy_wva }}" = "true" ] && kubectl get namespace "$WVA_NAMESPACE" &>/dev/null; then
+            echo "Waiting for WVA pods in $WVA_NAMESPACE..."
+            kubectl wait --for=condition=available --timeout=300s deployment --all -n "$WVA_NAMESPACE" || true
+            kubectl get pods -n "$WVA_NAMESPACE"
+          fi
+
           if [ "$POD_READINESS_DELAY" -gt 0 ]; then
             echo "Extra readiness delay: ${POD_READINESS_DELAY}s (model loading)..."
             sleep "$POD_READINESS_DELAY"
@@ -423,7 +621,104 @@ jobs:
             echo "No gateway resource found in $NAMESPACE — skipping wait"
           fi
 
+      - name: Verify metrics pipeline (WVA)
+        if: inputs.deploy_wva
+        env:
+          CONTROLLER_NAMESPACE: ${{ env.WVA_NAMESPACE }}
+        run: |
+          echo "=== Metrics Pipeline Verification ==="
+          echo "Waiting 180s for model to load and metrics to flow..."
+          sleep 180
+
+          echo "--- VariantAutoscaling Status ---"
+          kubectl get variantautoscaling -n "$NAMESPACE" -o wide || true
+          kubectl get variantautoscaling -n "$NAMESPACE" -o jsonpath='{range .items[*]}VA: {.metadata.name}{"\n"}  MetricsAvailable: {range .status.conditions[?(@.type=="MetricsAvailable")]}{.status} ({.reason}: {.message}){end}{"\n"}  DesiredOptimizedAlloc: replicas={.status.desiredOptimizedAlloc.numReplicas}, accel={.status.desiredOptimizedAlloc.accelerator}{"\n"}{end}' 2>/dev/null || true
+
+          echo "--- WVA Controller Logs (last 50 lines) ---"
+          kubectl logs -n "$CONTROLLER_NAMESPACE" -l app.kubernetes.io/name=workload-variant-autoscaler --tail=50 --all-containers 2>/dev/null || echo "Could not retrieve WVA controller logs"
+
+          echo "--- WVA Controller Error Logs ---"
+          kubectl logs -n "$CONTROLLER_NAMESPACE" -l app.kubernetes.io/name=workload-variant-autoscaler --all-containers 2>/dev/null | grep -iE "error|fail|panic|cannot|refused|timeout|unauthorized|forbidden|certificate" | tail -20 || echo "No error logs found"
+
+          echo "--- External Metrics API ---"
+          kubectl get --raw "/apis/external.metrics.k8s.io/v1beta1" 2>/dev/null | jq '.resources[].name' 2>/dev/null || echo "External metrics API not responding"
+          kubectl get --raw "/apis/external.metrics.k8s.io/v1beta1/namespaces/$NAMESPACE/wva_desired_replicas" 2>/dev/null | jq '.' || echo "wva_desired_replicas metric not available yet"
+
+          echo "--- PodMonitors & ServiceMonitors ---"
+          kubectl get podmonitor,servicemonitor -n "$NAMESPACE" 2>/dev/null || echo "No monitors found"
+          kubectl get podmonitor,servicemonitor -n "$CONTROLLER_NAMESPACE" 2>/dev/null || echo "No monitors found in controller namespace"
+
+          echo "=== Metrics Pipeline Verification Complete ==="
+
+      - name: Install Go dependencies (WVA)
+        if: inputs.deploy_wva && inputs.caller_repo != ''
+        run: |
+          cd _caller
+          go mod download
+
+      - name: Run WVA E2E tests
+        if: inputs.deploy_wva && inputs.test_target != ''
+        env:
+          CONTROLLER_NAMESPACE: ${{ env.WVA_NAMESPACE }}
+          MONITORING_NAMESPACE: openshift-user-workload-monitoring
+          LLMD_NAMESPACE: ${{ inputs.namespace }}
+          GATEWAY_NAME: infra-${{ inputs.guide_name }}-inference-gateway-istio
+          DEPLOYMENT: ms-${{ inputs.guide_name }}-llm-d-modelservice-decode
+          WVA_RELEASE_NAME: ${{ env.WVA_RELEASE_NAME }}
+        run: |
+          echo "Running WVA E2E tests (${{ inputs.test_target }})..."
+          echo "  CONTROLLER_NAMESPACE: $CONTROLLER_NAMESPACE"
+          echo "  LLMD_NAMESPACE: $LLMD_NAMESPACE"
+          echo "  DEPLOYMENT: $DEPLOYMENT"
+          echo "  GATEWAY_NAME: $GATEWAY_NAME"
+          echo "  MODEL_ID: $MODEL_ID"
+          echo "  REQUEST_RATE: $REQUEST_RATE"
+          echo "  NUM_PROMPTS: $NUM_PROMPTS"
+          cd _caller
+          make ${{ inputs.test_target }}
+
+      - name: Diagnostic dump (WVA, on failure)
+        if: failure() && inputs.deploy_wva
+        env:
+          CONTROLLER_NAMESPACE: ${{ env.WVA_NAMESPACE }}
+        run: |
+          echo "=== Post-Failure Diagnostic Dump ==="
+
+          echo "--- VariantAutoscaling Full Status ---"
+          kubectl describe variantautoscaling -n "$NAMESPACE" 2>/dev/null || echo "No VA found"
+
+          echo "--- WVA Controller Logs (full) ---"
+          kubectl logs -n "$CONTROLLER_NAMESPACE" -l app.kubernetes.io/name=workload-variant-autoscaler --all-containers --tail=200 2>/dev/null || echo "Could not retrieve WVA controller logs"
+
+          echo "--- Prometheus Adapter Logs (full) ---"
+          kubectl logs -n openshift-user-workload-monitoring -l app.kubernetes.io/name=prometheus-adapter --tail=100 2>/dev/null || echo "Could not retrieve Prometheus Adapter logs"
+
+          echo "--- External Metrics API ---"
+          kubectl get --raw "/apis/external.metrics.k8s.io/v1beta1" 2>/dev/null | jq '.' || echo "External metrics API not responding"
+          kubectl get --raw "/apis/external.metrics.k8s.io/v1beta1/namespaces/$NAMESPACE/wva_desired_replicas" 2>/dev/null | jq '.' || echo "wva_desired_replicas not available"
+
+          echo "--- All Pods in Test Namespaces ---"
+          kubectl get pods -n "$NAMESPACE" -o wide 2>/dev/null || true
+          kubectl get pods -n "$CONTROLLER_NAMESPACE" -o wide 2>/dev/null || true
+          kubectl get pods -n openshift-user-workload-monitoring 2>/dev/null | grep -E "prometheus-adapter|prometheus-user" || true
+
+          echo "--- HPA Status ---"
+          kubectl get hpa -n "$NAMESPACE" -o wide 2>/dev/null || echo "No HPAs found"
+          kubectl describe hpa -n "$NAMESPACE" 2>/dev/null || true
+
+          echo "--- vLLM Pod Logs (last 30 lines) ---"
+          VLLM_POD=$(kubectl get pods -n "$NAMESPACE" -o name 2>/dev/null | grep -i "model\|decode" | head -1)
+          if [ -n "$VLLM_POD" ]; then
+            kubectl logs -n "$NAMESPACE" "$VLLM_POD" --all-containers --tail=30 2>/dev/null || echo "Could not get vLLM logs"
+          fi
+
+          echo "--- WVA ConfigMap (Prometheus config) ---"
+          kubectl get configmap -n "$CONTROLLER_NAMESPACE" -l app.kubernetes.io/name=workload-variant-autoscaler -o yaml 2>/dev/null | grep -A5 "PROMETHEUS\|prometheus\|baseURL\|monitoringNamespace" || echo "No WVA ConfigMap found"
+
+          echo "=== Diagnostic Dump Complete ==="
+
       - name: Run E2E validation
+        if: "!inputs.deploy_wva"
         run: |
           echo "Running E2E validation for $GUIDE_NAME..."
           cd .github/scripts/e2e
@@ -442,6 +737,13 @@ jobs:
           echo "| Gateway Type | $GATEWAY_TYPE |" >> $GITHUB_STEP_SUMMARY
           echo "| Accelerator | $ACCELERATOR_TYPE |" >> $GITHUB_STEP_SUMMARY
           echo "| llm-d Ref | ${{ inputs.llm_d_ref }} |" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.deploy_wva }}" = "true" ]; then
+            echo "| Caller Repo | ${{ inputs.caller_repo }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| Model | $MODEL_ID |" >> $GITHUB_STEP_SUMMARY
+            echo "| Request Rate | $REQUEST_RATE req/s |" >> $GITHUB_STEP_SUMMARY
+            echo "| Prompts | $NUM_PROMPTS |" >> $GITHUB_STEP_SUMMARY
+            echo "| Test Target | ${{ inputs.test_target }} |" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Collect pod logs
         if: always()
@@ -452,6 +754,14 @@ jobs:
             kubectl logs --all-containers=true -n "$NAMESPACE" "$pod" > "/tmp/pod-logs-$GUIDE_NAME/${pod}.log" 2>&1 || true
             kubectl describe pod -n "$NAMESPACE" "$pod" > "/tmp/pod-logs-$GUIDE_NAME/${pod}-describe.log" 2>&1 || true
           done
+          # Collect WVA namespace logs too
+          if [ "${{ inputs.deploy_wva }}" = "true" ] && kubectl get namespace "$WVA_NAMESPACE" &>/dev/null; then
+            echo "Collecting pod logs from $WVA_NAMESPACE..."
+            for pod in $(kubectl get pods -n "$WVA_NAMESPACE" --no-headers -o custom-columns=":metadata.name" 2>/dev/null); do
+              kubectl logs --all-containers=true -n "$WVA_NAMESPACE" "$pod" > "/tmp/pod-logs-$GUIDE_NAME/wva-${pod}.log" 2>&1 || true
+              kubectl describe pod -n "$WVA_NAMESPACE" "$pod" > "/tmp/pod-logs-$GUIDE_NAME/wva-${pod}-describe.log" 2>&1 || true
+            done
+          fi
           cp /tmp/helmfile-deploy.log "/tmp/pod-logs-$GUIDE_NAME/" 2>/dev/null || true
 
       - name: Upload pod logs
@@ -467,6 +777,11 @@ jobs:
         run: |
           echo "Cleaning up nightly test infrastructure for $GUIDE_NAME..."
 
+          # Uninstall WVA helm release first (before namespace deletion)
+          if [ "${{ inputs.deploy_wva }}" = "true" ]; then
+            helm uninstall "$WVA_RELEASE_NAME" -n "$WVA_NAMESPACE" --ignore-not-found --wait --timeout 60s || true
+          fi
+
           # Destroy helmfile releases
           if [ -f "$GUIDE_PATH/helmfile.yaml.gotmpl" ]; then
             echo "Destroying helmfile releases..."
@@ -480,14 +795,39 @@ jobs:
             kubectl delete -f "$GUIDE_PATH/${{ inputs.httproute_file }}" -n "$NAMESPACE" --ignore-not-found || true
           fi
 
-          # Fallback: uninstall remaining helm releases
-          for release in $(helm list -n "$NAMESPACE" -q 2>/dev/null); do
-            echo "  Uninstalling release: $release"
-            helm uninstall "$release" -n "$NAMESPACE" --ignore-not-found --wait --timeout 60s || true
+          # Fallback: uninstall remaining helm releases in all namespaces
+          for ns in "$NAMESPACE" ${WVA_NAMESPACE:+"$WVA_NAMESPACE"}; do
+            for release in $(helm list -n "$ns" -q 2>/dev/null); do
+              echo "  Uninstalling release: $release in $ns"
+              helm uninstall "$release" -n "$ns" --ignore-not-found --wait --timeout 60s || true
+            done
           done
 
-          # Delete namespace
+          # Delete namespaces
           echo "Deleting namespace $NAMESPACE..."
           kubectl delete namespace "$NAMESPACE" --ignore-not-found --timeout=120s || true
+          if [ "${{ inputs.deploy_wva }}" = "true" ] && [ -n "$WVA_NAMESPACE" ]; then
+            echo "Deleting namespace $WVA_NAMESPACE..."
+            kubectl delete namespace "$WVA_NAMESPACE" --ignore-not-found --timeout=120s || true
+          fi
+
+          # Clean up cluster-scoped WVA resources
+          if [ "${{ inputs.deploy_wva }}" = "true" ]; then
+            kubectl delete clusterrole,clusterrolebinding \
+              -l app.kubernetes.io/name=workload-variant-autoscaler,app.kubernetes.io/instance="$WVA_RELEASE_NAME" \
+              --ignore-not-found || true
+
+            # Clean up cluster-scoped resources owned by the nightly namespaces
+            for kind in clusterrole clusterrolebinding; do
+              kubectl get "$kind" -o json 2>/dev/null | \
+                jq -r '.items[] | select(.metadata.name | contains("workload-variant-autoscaler")) | "\(.metadata.name)\t\(.metadata.annotations["meta.helm.sh/release-namespace"] // "")"' 2>/dev/null | \
+                while IFS=$'\t' read -r name ns; do
+                  if [ "$ns" = "$NAMESPACE" ] || [ "$ns" = "$WVA_NAMESPACE" ]; then
+                    echo "  Deleting $kind/$name (owned by nightly namespace '$ns')"
+                    kubectl delete "$kind" "$name" --ignore-not-found || true
+                  fi
+                done
+            done
+          fi
 
           echo "Nightly cleanup complete"
