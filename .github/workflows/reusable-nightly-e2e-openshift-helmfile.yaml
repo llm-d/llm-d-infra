@@ -61,6 +61,11 @@ on:
         required: false
         type: number
         default: 4
+      gpu_wait_timeout:
+        description: 'Minutes to wait for GPUs to become available (0 = no wait, fail immediately)'
+        required: false
+        type: number
+        default: 0
 
       # --- Model & accelerator ---
       model_id:
@@ -264,16 +269,19 @@ jobs:
         env:
           REQUIRED_GPUS: ${{ inputs.required_gpus }}
           RECOMMENDED_GPUS: ${{ inputs.recommended_gpus }}
+          GPU_WAIT_TIMEOUT: ${{ inputs.gpu_wait_timeout }}
         run: |
           echo "Checking GPU availability for nightly e2e ($GUIDE_NAME)..."
 
-          TOTAL_GPUS=$(kubectl get nodes -o json | \
-            jq '[.items[].status.allocatable["nvidia.com/gpu"] // "0" | tonumber] | add // 0')
+          check_gpus() {
+            TOTAL_GPUS=$(kubectl get nodes -o json | \
+              jq '[.items[].status.allocatable["nvidia.com/gpu"] // "0" | tonumber] | add // 0')
+            ALLOCATED_GPUS=$(kubectl get pods --all-namespaces -o json | \
+              jq '[.items[] | select(.status.phase == "Running" or .status.phase == "Pending") | .spec.containers[]?.resources.requests["nvidia.com/gpu"] // "0" | tonumber] | add // 0')
+            AVAILABLE_GPUS=$((TOTAL_GPUS - ALLOCATED_GPUS))
+          }
 
-          ALLOCATED_GPUS=$(kubectl get pods --all-namespaces -o json | \
-            jq '[.items[] | select(.status.phase == "Running" or .status.phase == "Pending") | .spec.containers[]?.resources.requests["nvidia.com/gpu"] // "0" | tonumber] | add // 0')
-
-          AVAILABLE_GPUS=$((TOTAL_GPUS - ALLOCATED_GPUS))
+          check_gpus
 
           TOTAL_CPU=$(kubectl get nodes -o json | \
             jq '[.items[].status.allocatable.cpu // "0" | if endswith("m") then (gsub("m$";"") | tonumber / 1000) else tonumber end] | add | floor')
@@ -305,10 +313,33 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**No GPUs required** for this guide (simulated accelerators)" >> $GITHUB_STEP_SUMMARY
           elif [ "$AVAILABLE_GPUS" -lt "$REQUIRED_GPUS" ]; then
+            # Wait for GPUs if timeout is configured
+            if [ "${GPU_WAIT_TIMEOUT:-0}" -gt 0 ]; then
+              DEADLINE=$((SECONDS + GPU_WAIT_TIMEOUT * 60))
+              echo "::notice::Waiting up to ${GPU_WAIT_TIMEOUT}m for GPUs (need $REQUIRED_GPUS, have $AVAILABLE_GPUS)..."
+              while [ $SECONDS -lt $DEADLINE ]; do
+                REMAINING=$(( (DEADLINE - SECONDS) / 60 ))
+                echo "[$(date +%H:%M:%S)] Waiting for GPUs... need $REQUIRED_GPUS, have $AVAILABLE_GPUS (${REMAINING}m remaining)"
+                sleep 120
+                check_gpus
+                if [ "$AVAILABLE_GPUS" -ge "$REQUIRED_GPUS" ]; then
+                  echo "[$(date +%H:%M:%S)] GPUs now available: $AVAILABLE_GPUS free"
+                  echo "available_gpus=$AVAILABLE_GPUS" >> $GITHUB_OUTPUT
+                  echo "allocated_gpus=$ALLOCATED_GPUS" >> $GITHUB_OUTPUT
+                  break
+                fi
+              done
+            fi
+            if [ "$AVAILABLE_GPUS" -lt "$REQUIRED_GPUS" ]; then
+              WAIT_MSG=""
+              [ "${GPU_WAIT_TIMEOUT:-0}" -gt 0 ] && WAIT_MSG=" (after waiting ${GPU_WAIT_TIMEOUT}m)"
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "**Insufficient GPUs${WAIT_MSG}** — need $REQUIRED_GPUS but only $AVAILABLE_GPUS available." >> $GITHUB_STEP_SUMMARY
+              echo "::error::Insufficient GPUs: need $REQUIRED_GPUS, have $AVAILABLE_GPUS available${WAIT_MSG}"
+              exit 1
+            fi
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Insufficient GPUs** — need $REQUIRED_GPUS but only $AVAILABLE_GPUS available." >> $GITHUB_STEP_SUMMARY
-            echo "::error::Insufficient GPUs: need $REQUIRED_GPUS, have $AVAILABLE_GPUS available"
-            exit 1
+            echo "**GPUs available after waiting** — $AVAILABLE_GPUS GPUs free ($REQUIRED_GPUS required, $RECOMMENDED_GPUS recommended)" >> $GITHUB_STEP_SUMMARY
           elif [ "$AVAILABLE_GPUS" -lt "$RECOMMENDED_GPUS" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**Low GPU headroom** — $AVAILABLE_GPUS available (need $RECOMMENDED_GPUS for scale-up tests)." >> $GITHUB_STEP_SUMMARY
