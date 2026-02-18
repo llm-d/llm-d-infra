@@ -1,0 +1,9 @@
+# See https://go.k8s.io/owners for format documentation
+
+reviewers:
+  - clubanderson
+  - Gregory-Pereira
+
+approvers:
+  - clubanderson
+  - Gregory-Pereira
