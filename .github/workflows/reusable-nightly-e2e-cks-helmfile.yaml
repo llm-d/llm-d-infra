@@ -550,6 +550,13 @@ jobs:
             ln -s "$GITHUB_WORKSPACE" llm-d
             echo "  Symlinked _caller/llm-d → $GITHUB_WORKSPACE"
           fi
+          # CKS/CoreWeave GPU nodes have NodeAffinity that prevents the
+          # prometheus node-exporter DaemonSet from scheduling.  Disable it
+          # so the helm install doesn't time out waiting for unschedulable pods.
+          if [ -f deploy/kubernetes/install.sh ]; then
+            sed -i 's|helm upgrade --install kube-prometheus-stack|helm upgrade --install kube-prometheus-stack --set prometheus-node-exporter.enabled=false|' deploy/kubernetes/install.sh
+            echo "  Patched kubernetes/install.sh: disabled prometheus-node-exporter"
+          fi
           ./deploy/install.sh --model "$MODEL_ID" --accelerator "$ACCELERATOR_TYPE" --release-name "$WVA_RELEASE_NAME"
           cd "$GITHUB_WORKSPACE"
 
@@ -572,7 +579,7 @@ jobs:
           ${{ inputs.custom_deploy_script }}
 
       - name: Deploy HTTPRoute
-        if: inputs.httproute_file != '' && inputs.custom_deploy_script == ''
+        if: inputs.httproute_file != '' && inputs.custom_deploy_script == '' && !inputs.deploy_wva
         run: |
           HTTPROUTE="${GUIDE_PATH}/${{ inputs.httproute_file }}"
           if [ -f "$HTTPROUTE" ]; then
@@ -827,6 +834,17 @@ jobs:
           if [ "${{ inputs.deploy_wva }}" = "true" ] && [ -n "$WVA_NAMESPACE" ]; then
             echo "Deleting namespace $WVA_NAMESPACE..."
             kubectl delete namespace "$WVA_NAMESPACE" --ignore-not-found --timeout=120s || true
+          fi
+          # WVA install.sh creates a monitoring namespace for kube-prometheus-stack.
+          # Clean it up to prevent stale DaemonSet pods from blocking future runs.
+          if [ "${{ inputs.deploy_wva }}" = "true" ]; then
+            MONITORING_NS="workload-variant-autoscaler-monitoring"
+            if kubectl get namespace "$MONITORING_NS" &>/dev/null; then
+              echo "Cleaning up WVA monitoring namespace $MONITORING_NS..."
+              helm uninstall kube-prometheus-stack -n "$MONITORING_NS" --ignore-not-found 2>/dev/null || true
+              helm uninstall prometheus-adapter -n "$MONITORING_NS" --ignore-not-found 2>/dev/null || true
+              kubectl delete namespace "$MONITORING_NS" --ignore-not-found --timeout=120s || true
+            fi
           fi
 
           # Clean up cluster-scoped WVA resources
