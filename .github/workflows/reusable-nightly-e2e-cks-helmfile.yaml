@@ -542,6 +542,13 @@ jobs:
           echo "  WVA_NS: $WVA_NS"
           echo "  WVA_RELEASE_NAME: $WVA_RELEASE_NAME"
           cd _caller
+          # WVA install.sh expects llm-d/ as a subdirectory (LLM_D_PROJECT=llm-d)
+          # but the helmfile workflow checks out llm-d/llm-d at the workspace root.
+          # Symlink so install.sh can find guides/ and charts/ where it expects them.
+          if [ ! -d "llm-d" ] && [ -d "$GITHUB_WORKSPACE/guides" ]; then
+            ln -s "$GITHUB_WORKSPACE" llm-d
+            echo "  Symlinked _caller/llm-d → $GITHUB_WORKSPACE"
+          fi
           ./deploy/install.sh --model "$MODEL_ID" --accelerator "$ACCELERATOR_TYPE" --release-name "$WVA_RELEASE_NAME"
           cd "$GITHUB_WORKSPACE"
 
