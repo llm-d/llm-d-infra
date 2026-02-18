@@ -569,7 +569,7 @@ jobs:
           ${{ inputs.custom_deploy_script }}
 
       - name: Deploy HTTPRoute
-        if: inputs.httproute_file != '' && inputs.custom_deploy_script == ''
+        if: inputs.httproute_file != '' && inputs.custom_deploy_script == '' && !inputs.deploy_wva
         run: |
           HTTPROUTE="${GUIDE_PATH}/${{ inputs.httproute_file }}"
           if [ -f "$HTTPROUTE" ]; then
