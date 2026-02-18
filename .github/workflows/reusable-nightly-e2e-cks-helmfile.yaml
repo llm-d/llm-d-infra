@@ -554,7 +554,7 @@ jobs:
           # prometheus node-exporter DaemonSet from scheduling.  Disable it
           # so the helm install doesn't time out waiting for unschedulable pods.
           if [ -f deploy/kubernetes/install.sh ]; then
-            sed -i 's|helm upgrade --install kube-prometheus-stack|helm upgrade --install kube-prometheus-stack --set prometheus-node-exporter.enabled=false|' deploy/kubernetes/install.sh
+            sed -i 's|helm upgrade --install kube-prometheus-stack|helm upgrade --install kube-prometheus-stack --set nodeExporter.enabled=false|' deploy/kubernetes/install.sh
             echo "  Patched kubernetes/install.sh: disabled prometheus-node-exporter"
           fi
           ./deploy/install.sh --model "$MODEL_ID" --accelerator "$ACCELERATOR_TYPE" --release-name "$WVA_RELEASE_NAME"
