@@ -362,9 +362,10 @@ jobs:
           else
             for file in $VALUES_FILES; do
               echo "Updating vLLM image in ${file}..."
-              yq e '(.decode.containers[].image | select(test("^ghcr\.io/llm-d/llm-d-cuda"))) = strenv(IMAGE_OVERRIDE)' -i "$file"
-              yq e '(.prefill.containers[].image | select(test("^ghcr\.io/llm-d/llm-d-cuda"))) = strenv(IMAGE_OVERRIDE)' -i "$file"
-              yq e '(.containers[].image | select(test("^ghcr\.io/llm-d/llm-d-cuda"))) = strenv(IMAGE_OVERRIDE)' -i "$file"
+              # Guard each yq call: only modify if the key exists, otherwise yq creates ghost empty arrays
+              yq e '(select(.decode.containers != null) | .decode.containers[].image | select(test("^ghcr\.io/llm-d/llm-d-cuda"))) = strenv(IMAGE_OVERRIDE)' -i "$file"
+              yq e '(select(.prefill.containers != null) | .prefill.containers[].image | select(test("^ghcr\.io/llm-d/llm-d-cuda"))) = strenv(IMAGE_OVERRIDE)' -i "$file"
+              yq e '(select(.containers != null) | .containers[].image | select(test("^ghcr\.io/llm-d/llm-d-cuda"))) = strenv(IMAGE_OVERRIDE)' -i "$file"
             done
           fi
         env:
