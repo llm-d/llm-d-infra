@@ -327,21 +327,29 @@ jobs:
             # If still insufficient after waiting, try preemption or fail
             if [ "$AVAILABLE_GPUS" -lt "$REQUIRED_GPUS" ]; then
               if [ "${{ inputs.allow_gpu_preemption }}" = "true" ]; then
-                NEG_PRIORITY_GPU_PODS=$(kubectl get pods --all-namespaces -o json | \
+                # Count GPU pods with default priority (0) or negative — these can be
+                # preempted by nightly pods deployed with a higher PriorityClass.
+                PREEMPTABLE_GPU_COUNT=$(kubectl get pods --all-namespaces -o json | \
                   jq '[.items[] | select(
                     (.spec.containers[]?.resources.limits["nvidia.com/gpu"] // "0" | tonumber) > 0
-                    and (.spec.priority // 0) < 0
+                    and (.spec.priority // 0) <= 0
+                  ) | .spec.containers[]?.resources.limits["nvidia.com/gpu"] // "0" | tonumber] | add // 0')
+                PREEMPTABLE_POD_COUNT=$(kubectl get pods --all-namespaces -o json | \
+                  jq '[.items[] | select(
+                    (.spec.containers[]?.resources.limits["nvidia.com/gpu"] // "0" | tonumber) > 0
+                    and (.spec.priority // 0) <= 0
                   )] | length')
-                if [ "$NEG_PRIORITY_GPU_PODS" -gt 0 ]; then
+                POTENTIAL_GPUS=$((AVAILABLE_GPUS + PREEMPTABLE_GPU_COUNT))
+                if [ "$POTENTIAL_GPUS" -ge "$REQUIRED_GPUS" ]; then
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Insufficient GPUs** — need $REQUIRED_GPUS but only $AVAILABLE_GPUS available. Found $NEG_PRIORITY_GPU_PODS GPU pod(s) with negative priority — proceeding (Kubernetes will preempt them)." >> $GITHUB_STEP_SUMMARY
-                  echo "::warning::Insufficient GPUs ($AVAILABLE_GPUS/$REQUIRED_GPUS) but $NEG_PRIORITY_GPU_PODS pod(s) with negative priority can be preempted"
+                  echo "**Insufficient free GPUs** — need $REQUIRED_GPUS but only $AVAILABLE_GPUS free. Found $PREEMPTABLE_POD_COUNT preemptable GPU pod(s) holding $PREEMPTABLE_GPU_COUNT GPU(s) — proceeding (Kubernetes will preempt as needed)." >> $GITHUB_STEP_SUMMARY
+                  echo "::warning::Insufficient free GPUs ($AVAILABLE_GPUS/$REQUIRED_GPUS) but $PREEMPTABLE_GPU_COUNT preemptable GPUs available (priority <= 0)"
                 else
                   WAIT_MSG=""
                   [ "${GPU_WAIT_TIMEOUT:-0}" -gt 0 ] && WAIT_MSG=" (after waiting ${GPU_WAIT_TIMEOUT}m)"
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Insufficient GPUs${WAIT_MSG}** — need $REQUIRED_GPUS but only $AVAILABLE_GPUS available. No negative-priority GPU pods found to preempt." >> $GITHUB_STEP_SUMMARY
-                  echo "::error::Insufficient GPUs: need $REQUIRED_GPUS, have $AVAILABLE_GPUS. No preemptable (negative priority) pods found.${WAIT_MSG}"
+                  echo "**Insufficient GPUs${WAIT_MSG}** — need $REQUIRED_GPUS, have $AVAILABLE_GPUS free + $PREEMPTABLE_GPU_COUNT preemptable = $POTENTIAL_GPUS total (not enough)." >> $GITHUB_STEP_SUMMARY
+                  echo "::error::Insufficient GPUs: need $REQUIRED_GPUS, have $AVAILABLE_GPUS free + $PREEMPTABLE_GPU_COUNT preemptable = $POTENTIAL_GPUS total.${WAIT_MSG}"
                   exit 1
                 fi
               else
@@ -450,6 +458,21 @@ jobs:
           fi
 
           echo "Pre-cleanup complete"
+
+      - name: Create nightly PriorityClass
+        if: inputs.allow_gpu_preemption && inputs.required_gpus > 0
+        run: |
+          echo "Creating nightly-gpu-critical PriorityClass for GPU preemption..."
+          cat <<'PRIORITY_EOF' | kubectl apply -f -
+          apiVersion: scheduling.k8s.io/v1
+          kind: PriorityClass
+          metadata:
+            name: nightly-gpu-critical
+          value: 1000000
+          preemptionPolicy: PreemptLowerPriority
+          globalDefault: false
+          description: "High priority for nightly E2E GPU workloads — preempts default-priority pods"
+          PRIORITY_EOF
 
       - name: Create namespace and HF token secret
         run: |
@@ -588,6 +611,31 @@ jobs:
           else
             echo "::warning::HTTPRoute file $HTTPROUTE not found — skipping"
           fi
+
+      - name: Set nightly GPU priority on workloads
+        if: inputs.allow_gpu_preemption && inputs.required_gpus > 0
+        run: |
+          echo "Setting priorityClassName=nightly-gpu-critical on GPU workloads in $NAMESPACE..."
+          for kind in deployment statefulset; do
+            for name in $(kubectl get "$kind" -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+              # Check if this workload requests GPUs
+              GPU_REQ=$(kubectl get "$kind" "$name" -n "$NAMESPACE" -o json | \
+                jq '[.spec.template.spec.containers[]?.resources.limits["nvidia.com/gpu"] // "0" | tonumber] | add // 0')
+              if [ "$GPU_REQ" -gt 0 ]; then
+                echo "  Patching $kind/$name (requests $GPU_REQ GPU(s))..."
+                kubectl patch "$kind" "$name" -n "$NAMESPACE" --type=strategic -p \
+                  '{"spec":{"template":{"spec":{"priorityClassName":"nightly-gpu-critical"}}}}'
+              fi
+            done
+          done
+          # Also patch LeaderWorkerSets if present
+          for name in $(kubectl get leaderworkersets -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+            echo "  Patching leaderworkerset/$name..."
+            kubectl patch leaderworkerset "$name" -n "$NAMESPACE" --type=strategic -p \
+              '{"spec":{"leaderWorkerTemplate":{"workerTemplate":{"spec":{"priorityClassName":"nightly-gpu-critical"}}}}}' 2>/dev/null || \
+              echo "    Could not patch LWS $name (may not support strategic merge)"
+          done
+          echo "Priority patching complete"
 
       - name: Show deployment status
         run: |
