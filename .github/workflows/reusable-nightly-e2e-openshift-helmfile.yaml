@@ -660,8 +660,15 @@ jobs:
                 jq '[.spec.template.spec.containers[]?.resources.limits["nvidia.com/gpu"] // "0" | tonumber] | add // 0')
               if [ "$GPU_REQ" -gt 0 ]; then
                 echo "  Patching $kind/$name (requests $GPU_REQ GPU(s))..."
-                kubectl patch "$kind" "$name" -n "$NAMESPACE" --type=strategic -p \
-                  '{"spec":{"template":{"spec":{"priorityClassName":"nightly-gpu-critical"}}}}'
+                if [ "$kind" = "deployment" ]; then
+                  # Use Recreate strategy for GPU deployments to avoid rolling update deadlock.
+                  # With RollingUpdate, new pods can't start because old pods hold the GPUs.
+                  kubectl patch "$kind" "$name" -n "$NAMESPACE" --type=strategic -p \
+                    '{"spec":{"strategy":{"type":"Recreate"},"template":{"spec":{"priorityClassName":"nightly-gpu-critical"}}}}'
+                else
+                  kubectl patch "$kind" "$name" -n "$NAMESPACE" --type=strategic -p \
+                    '{"spec":{"template":{"spec":{"priorityClassName":"nightly-gpu-critical"}}}}'
+                fi
               fi
             done
           done
