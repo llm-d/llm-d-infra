@@ -16,8 +16,6 @@ This repo provides [reusable GitHub Actions workflows](https://docs.github.com/e
 | `reusable-stale.yml` | Mark stale issues/PRs, then rotten, then close | `schedule` (daily) |
 | `reusable-unstale.yml` | Remove stale/rotten labels on activity | `issues` + `issue_comment` |
 | `reusable-signed-commits.yml` | Enforce signed/DCO commits | `pull_request_target` |
-| `reusable-typos.yml` | Spell-check code and docs | `pull_request` + `push` |
-| `reusable-md-link-check.yml` | Validate markdown links with lychee | `push` + `pull_request` |
 | `reusable-non-main-gatekeeper.yml` | Block PRs to non-main branches | `pull_request` |
 
 ### Usage
@@ -97,31 +95,6 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-```
-
-```yaml
-# .github/workflows/check-typos.yaml
-name: Check Typos
-on:
-  pull_request:
-  push:
-jobs:
-  typos:
-    uses: llm-d/llm-d-infra/.github/workflows/reusable-typos.yml@main
-```
-
-```yaml
-# .github/workflows/md-link-check.yml
-name: Markdown Link Check
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
-jobs:
-  links:
-    uses: llm-d/llm-d-infra/.github/workflows/reusable-md-link-check.yml@main
 ```
 
 ```yaml
