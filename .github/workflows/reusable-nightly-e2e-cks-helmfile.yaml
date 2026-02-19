@@ -657,6 +657,25 @@ jobs:
           done
           echo "Priority patching complete"
 
+          # Wait for rolling updates triggered by the priority patch to stabilize.
+          # Without this, kubectl wait sees pods from both old and new ReplicaSets,
+          # causing "NotFound" errors as old pods are deleted during rollout.
+          echo "Waiting for rollouts to stabilize after priority patching..."
+          for kind in deployment statefulset; do
+            for name in $(kubectl get "$kind" -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+              echo "  Waiting for $kind/$name rollout..."
+              kubectl rollout status "$kind/$name" -n "$NAMESPACE" --timeout=10m 2>/dev/null || \
+                echo "    Rollout status check timed out for $kind/$name (will retry in pod wait)"
+            done
+          done
+          # Also wait for LeaderWorkerSet rollouts, since they were patched above.
+          for name in $(kubectl get leaderworkersets -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+            echo "  Waiting for leaderworkerset/$name rollout..."
+            kubectl rollout status "leaderworkerset/$name" -n "$NAMESPACE" --timeout=10m 2>/dev/null || \
+              echo "    Rollout status check failed for leaderworkerset/$name (kubectl may not support rollout for this resource; will rely on pod wait)"
+          done
+          echo "Rollouts stabilized"
+
       - name: Show deployment status
         run: |
           echo "=== Deployments ==="
