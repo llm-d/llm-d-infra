@@ -56,8 +56,6 @@ jobs:
             ["reusable-stale.yml"]="stale.yaml"
             ["reusable-unstale.yml"]="unstale.yaml"
             ["reusable-signed-commits.yml"]="ci-signed-commits.yaml"
-            ["reusable-typos.yml"]="check-typos.yaml"
-            ["reusable-md-link-check.yml"]="md-link-check.yml"
             ["reusable-non-main-gatekeeper.yml"]="non-main-gatekeeper.yml"
           )
 
