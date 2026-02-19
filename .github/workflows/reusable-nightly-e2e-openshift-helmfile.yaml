@@ -663,10 +663,10 @@ jobs:
                 if [ "$kind" = "deployment" ]; then
                   # Use Recreate strategy for GPU deployments to avoid rolling update deadlock.
                   # With RollingUpdate, new pods can't start because old pods hold the GPUs.
-                  # Use merge patch (not strategic) so it replaces the strategy object entirely,
-                  # removing any existing rollingUpdate config that conflicts with Recreate.
+                  # Use merge patch with rollingUpdate:null to clear the existing rollingUpdate
+                  # config, which Kubernetes rejects when strategy type is Recreate.
                   kubectl patch "$kind" "$name" -n "$NAMESPACE" --type=merge -p \
-                    '{"spec":{"strategy":{"type":"Recreate"},"template":{"spec":{"priorityClassName":"nightly-gpu-critical"}}}}'
+                    '{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null},"template":{"spec":{"priorityClassName":"nightly-gpu-critical"}}}}'
                 else
                   kubectl patch "$kind" "$name" -n "$NAMESPACE" --type=strategic -p \
                     '{"spec":{"template":{"spec":{"priorityClassName":"nightly-gpu-critical"}}}}'
