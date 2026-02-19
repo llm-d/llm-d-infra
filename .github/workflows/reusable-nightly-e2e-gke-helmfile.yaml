@@ -168,7 +168,7 @@ jobs:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
     steps:
       - name: Checkout llm-d/llm-d
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: llm-d/llm-d
           ref: ${{ inputs.llm_d_ref }}
