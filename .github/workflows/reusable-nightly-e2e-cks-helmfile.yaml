@@ -258,6 +258,26 @@ jobs:
           kubectl cluster-info
           kubectl get nodes
 
+      - name: Cordon unhealthy GPU nodes
+        run: |
+          echo "Checking for unhealthy GPU nodes to cordon..."
+          CORDONED_NODES=""
+          for node in $(kubectl get nodes -o json | jq -r '
+            .items[] | select(
+              ((.status.allocatable["nvidia.com/gpu"] // "0" | tonumber) > 0) and
+              (.status.conditions[] | select(.type == "Ready") | .status != "True")
+            ) | .metadata.name'); do
+            echo "::warning::Cordoning unhealthy GPU node: $node"
+            kubectl cordon "$node" 2>/dev/null || true
+            CORDONED_NODES="$CORDONED_NODES $node"
+          done
+          echo "NIGHTLY_CORDONED_NODES=$CORDONED_NODES" >> $GITHUB_ENV
+          if [ -z "$CORDONED_NODES" ]; then
+            echo "All GPU nodes are healthy"
+          else
+            echo "Cordoned nodes:$CORDONED_NODES"
+          fi
+
       - name: Check GPU availability
         id: gpu-check
         env:
@@ -914,3 +934,14 @@ jobs:
           fi
 
           echo "Nightly cleanup complete"
+
+      - name: Uncordon nodes cordoned by this run
+        if: always()
+        run: |
+          if [ -n "$NIGHTLY_CORDONED_NODES" ]; then
+            echo "Uncordoning nodes that were cordoned by this nightly run..."
+            for node in $NIGHTLY_CORDONED_NODES; do
+              echo "  Uncordoning $node"
+              kubectl uncordon "$node" 2>/dev/null || true
+            done
+          fi
