@@ -208,14 +208,14 @@ jobs:
       WVA_RELEASE_NAME: ${{ format('wva-{0}', inputs.guide_name) }}
     steps:
       - name: Checkout llm-d/llm-d
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: llm-d/llm-d
           ref: ${{ inputs.llm_d_ref }}
 
       - name: Checkout caller repo (WVA)
         if: inputs.deploy_wva && inputs.caller_repo != ''
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ${{ inputs.caller_repo }}
           ref: ${{ inputs.caller_ref }}
