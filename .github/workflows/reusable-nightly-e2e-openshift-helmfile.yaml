@@ -232,7 +232,7 @@ jobs:
 
       - name: Set up Go
         if: inputs.deploy_wva && inputs.caller_repo != ''
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: "${{ env.GO_VERSION }}"
           cache-dependency-path: _caller/go.sum
