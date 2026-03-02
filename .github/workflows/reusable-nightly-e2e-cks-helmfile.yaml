@@ -576,8 +576,12 @@ jobs:
           DEPLOY_WVA: "true"
           DEPLOY_PROMETHEUS: "true"
           DEPLOY_PROMETHEUS_ADAPTER: "true"
-          DEPLOY_VA: "true"
-          DEPLOY_HPA: "true"
+          # Skip infra VA/HPA — the E2E tests create their own VA+HPA targeting
+          # their own deployments. The infra VA adds a second idle pod to the
+          # saturation analysis group, diluting KV cache metrics and preventing
+          # scale-up from triggering (matches PR CI approach).
+          DEPLOY_VA: "false"
+          DEPLOY_HPA: "false"
         run: |
           echo "Deploying $GUIDE_NAME via WVA install.sh on CKS..."
           echo "  MODEL_ID: $MODEL_ID"
