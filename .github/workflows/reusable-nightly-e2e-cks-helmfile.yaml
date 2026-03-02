@@ -801,6 +801,9 @@ jobs:
           GATEWAY_NAME: infra-${{ inputs.guide_name }}-inference-gateway-istio
           DEPLOYMENT: ms-${{ inputs.guide_name }}-llm-d-modelservice-decode
           WVA_RELEASE_NAME: ${{ env.WVA_RELEASE_NAME }}
+          ENVIRONMENT: kubernetes
+          USE_SIMULATOR: "false"
+          CONTROLLER_INSTANCE: ${{ env.WVA_RELEASE_NAME }}
         run: |
           echo "Running WVA E2E tests (${{ inputs.test_target }}) on CKS..."
           echo "  CONTROLLER_NAMESPACE: $CONTROLLER_NAMESPACE"
@@ -809,6 +812,9 @@ jobs:
           echo "  MODEL_ID: $MODEL_ID"
           echo "  REQUEST_RATE: $REQUEST_RATE"
           echo "  NUM_PROMPTS: $NUM_PROMPTS"
+          echo "  ENVIRONMENT: $ENVIRONMENT"
+          echo "  USE_SIMULATOR: $USE_SIMULATOR"
+          echo "  CONTROLLER_INSTANCE: $CONTROLLER_INSTANCE"
           cd _caller
           make ${{ inputs.test_target }}
 
