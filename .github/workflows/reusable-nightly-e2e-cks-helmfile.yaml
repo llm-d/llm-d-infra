@@ -877,6 +877,56 @@ jobs:
             echo "| Test Target | ${{ inputs.test_target }} |" >> $GITHUB_STEP_SUMMARY
           fi
 
+      - name: Emit image metadata
+        if: always()
+        env:
+          DEPLOY_WVA: ${{ inputs.deploy_wva && 'true' || '' }}
+        run: |
+          set -euo pipefail
+          METADATA_FILE=/tmp/image-metadata.json
+          SCAN_PATH="${GUIDE_PATH:-llm-d/guides/$GUIDE_NAME}"
+          LLMD_IMAGES='{}'
+          OTHER_IMAGES='{}'
+          if [ -d "$SCAN_PATH" ]; then
+            while IFS= read -r ref; do
+              [ -z "$ref" ] && continue
+              name=$(echo "$ref" | sed 's|.*/||' | cut -d: -f1)
+              tag=$(echo "$ref" | sed 's/.*://')
+              if echo "$ref" | grep -q 'ghcr\.io/llm-d/'; then
+                LLMD_IMAGES=$(echo "$LLMD_IMAGES" | jq --arg k "$name" --arg v "$tag" '. + {($k): $v}')
+              else
+                OTHER_IMAGES=$(echo "$OTHER_IMAGES" | jq --arg k "$name" --arg v "$tag" '. + {($k): $v}')
+              fi
+            done < <(grep -roh '[a-z][a-z0-9.-]*\.io/[a-zA-Z0-9_./-]*:[a-zA-Z0-9._-]*' "$SCAN_PATH" 2>/dev/null | sort -u)
+          fi
+          jq -n \
+            --arg imageOverride "${IMAGE_OVERRIDE:-}" \
+            --arg wvaImageTag "${WVA_IMAGE_TAG:-}" \
+            --arg deployWva "${DEPLOY_WVA:-}" \
+            --arg guideName "$GUIDE_NAME" \
+            --argjson llmdImages "$LLMD_IMAGES" \
+            --argjson otherImages "$OTHER_IMAGES" \
+            '{
+              guideName: $guideName,
+              imageOverride: (if $imageOverride != "" then $imageOverride else null end),
+              wvaImageTag: (if $deployWva == "true" and $wvaImageTag != "" then $wvaImageTag else null end),
+              llmdImages: $llmdImages,
+              otherImages: $otherImages
+            }' > "$METADATA_FILE"
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Resolved Images" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          jq . "$METADATA_FILE" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload image metadata
+        if: always()
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: image-metadata
+          path: /tmp/image-metadata.json
+          retention-days: 90
+
       - name: Collect pod logs
         if: always()
         run: |
