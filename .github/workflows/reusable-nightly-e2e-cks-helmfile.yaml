@@ -879,6 +879,8 @@ jobs:
 
       - name: Emit image metadata
         if: always()
+        env:
+          DEPLOY_WVA: ${{ inputs.deploy_wva && 'true' || '' }}
         run: |
           set -euo pipefail
           METADATA_FILE=/tmp/image-metadata.json
@@ -900,13 +902,14 @@ jobs:
           jq -n \
             --arg imageOverride "${IMAGE_OVERRIDE:-}" \
             --arg wvaImageTag "${WVA_IMAGE_TAG:-}" \
+            --arg deployWva "${DEPLOY_WVA:-}" \
             --arg guideName "$GUIDE_NAME" \
             --argjson llmdImages "$LLMD_IMAGES" \
             --argjson otherImages "$OTHER_IMAGES" \
             '{
               guideName: $guideName,
               imageOverride: (if $imageOverride != "" then $imageOverride else null end),
-              wvaImageTag: (if $wvaImageTag != "" then $wvaImageTag else null end),
+              wvaImageTag: (if $deployWva == "true" and $wvaImageTag != "" then $wvaImageTag else null end),
               llmdImages: $llmdImages,
               otherImages: $otherImages
             }' > "$METADATA_FILE"
@@ -918,7 +921,7 @@ jobs:
 
       - name: Upload image metadata
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.0
         with:
           name: image-metadata
           path: /tmp/image-metadata.json
