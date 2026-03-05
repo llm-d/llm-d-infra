@@ -34,7 +34,7 @@ permissions:
 env:
   # All non-archived repos across llm-d and llm-d-incubation orgs.
   # Excludes: llm-d-infra (source of truth), .github, templates, github.io,
-  # llm-d-incubation/llm-d-infra, llm-d-prism (empty — see issue #2).
+  # llm-d-incubation/llm-d-infra.
   CONSUMING_REPOS: |
     llm-d/llm-d
     llm-d/llm-d-benchmark
@@ -42,6 +42,7 @@ env:
     llm-d/llm-d-inference-sim
     llm-d/llm-d-kv-cache
     llm-d/llm-d-pd-utils
+    llm-d/llm-d-prism
     llm-d/llm-d-workload-variant-autoscaler
     llm-d-incubation/batch-gateway
     llm-d-incubation/hermes
