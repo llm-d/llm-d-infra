@@ -1,16 +1,25 @@
-# Sync Caller Workflows
-# When reusable workflows change, report which consuming repos still use
-# local copies and need migration.
+# Sync gh-aw Workflows to Consuming Repos
 #
-# Runs on push to main (when reusable-*.yml changes) or manual dispatch.
+# When gh-aw workflow sources (.md) or compiled lock files (.lock.yml) change,
+# open PRs on consuming repos with the updated files — pre-compiled, ready to merge.
+#
+# Consuming repos do NOT need `gh aw compile`. They just merge the PR.
+#
+# Requires: SYNC_TOKEN repo secret (classic PAT with repo + workflow scopes).
 
-name: Sync Caller Workflows to Consuming Repos
+name: Sync gh-aw Workflows to Consuming Repos
 
 on:
   push:
     branches: [main]
     paths:
-      - '.github/workflows/reusable-*.yml'
+      - '.github/workflows/upstream-monitor.md'
+      - '.github/workflows/upstream-monitor.lock.yml'
+      - '.github/workflows/link-checker.md'
+      - '.github/workflows/link-checker.lock.yml'
+      - '.github/workflows/typo-checker.md'
+      - '.github/workflows/typo-checker.lock.yml'
+      - '.github/aw/actions-lock.json'
   workflow_dispatch:
     inputs:
       dry-run:
@@ -23,59 +32,157 @@ permissions:
   contents: read
 
 env:
+  # All non-archived repos across llm-d and llm-d-incubation orgs.
+  # Excludes: llm-d-deployer (archived), llm-d-model-service (archived),
+  # llm-d-routing-sidecar (archived), llm-d-infra (this repo — source of truth).
   CONSUMING_REPOS: |
     llm-d/llm-d
-    llm-d/llm-d-inference-scheduler
-    llm-d/llm-d-kv-cache
-    llm-d/llm-d-inference-sim
     llm-d/llm-d-benchmark
+    llm-d/llm-d-docs
+    llm-d/llm-d-inference-scheduler
+    llm-d/llm-d-inference-sim
+    llm-d/llm-d-leaderboard
+    llm-d/llm-d-net
+    llm-d/llm-d-operator
     llm-d/llm-d-workload-variant-autoscaler
+    llm-d/lora-manager
+    llm-d/lora-reference-store
+    llm-d/prompt-manager
+    llm-d-incubation/llm-d-ci-templates
+    llm-d-incubation/llm-d-helm-charts
+    llm-d-incubation/llm-d-performance-benchmarks
+    llm-d-incubation/llm-d-prerelease
+    llm-d-incubation/llm-d-vllm-fork
+    llm-d-incubation/sidecar
+    llm-d-incubation/workload-benchmarks
+
+  GH_AW_WORKFLOWS: "upstream-monitor link-checker typo-checker"
+  SYNC_BRANCH: "sync/gh-aw-workflows"
 
 jobs:
-  check-adoption:
+  sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout infra repo
-        uses: actions/checkout@v6
+      - name: Checkout infra repo (source of truth)
+        uses: actions/checkout@v4
 
-      - name: Check adoption status
+      - name: Sync workflow files to consuming repos
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
         run: |
           set -euo pipefail
-          echo "## Reusable Workflow Adoption Report" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Repo | Workflow | Status |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|------|----------|--------|" >> "$GITHUB_STEP_SUMMARY"
 
-          # Map reusable workflows to their expected caller filenames
-          declare -A WORKFLOW_MAP=(
-            ["reusable-prow-commands.yml"]="prow-github.yml"
-            ["reusable-prow-automerge.yml"]="prow-pr-automerge.yml"
-            ["reusable-prow-remove-lgtm.yml"]="prow-pr-remove-lgtm.yml"
-            ["reusable-stale.yml"]="stale.yaml"
-            ["reusable-unstale.yml"]="unstale.yaml"
-            ["reusable-signed-commits.yml"]="ci-signed-commits.yaml"
-            ["reusable-non-main-gatekeeper.yml"]="non-main-gatekeeper.yml"
-          )
+          COMMIT_SHA="${GITHUB_SHA:0:7}"
+          DRY_RUN="${{ inputs.dry-run || 'false' }}"
+
+          # Step summary header
+          echo "## gh-aw Workflow Sync Report" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Source: [\`llm-d/llm-d-infra@${COMMIT_SHA}\`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Repo | Status | Details |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|------|--------|---------|" >> "$GITHUB_STEP_SUMMARY"
 
           while IFS= read -r repo; do
             [ -z "$repo" ] && continue
-            for reusable in "${!WORKFLOW_MAP[@]}"; do
-              caller="${WORKFLOW_MAP[$reusable]}"
-              # Check if workflow exists in the target repo
-              content=$(gh api "repos/$repo/contents/.github/workflows/$caller" --jq '.content' 2>/dev/null | base64 -d 2>/dev/null || echo "")
-              if [ -z "$content" ]; then
-                continue  # workflow doesn't exist in this repo
-              fi
-              if echo "$content" | grep -q "llm-d/llm-d-infra"; then
-                echo "| $repo | $caller | Adopted |" >> "$GITHUB_STEP_SUMMARY"
-              else
-                echo "| $repo | $caller | **Local copy** |" >> "$GITHUB_STEP_SUMMARY"
-              fi
+            echo "::group::$repo"
+
+            # Clone consuming repo (shallow)
+            tmpdir=$(mktemp -d)
+            if ! gh repo clone "$repo" "$tmpdir" -- --depth 1 2>/dev/null; then
+              echo "| $repo | **Clone failed** | Check SYNC_TOKEN permissions |" >> "$GITHUB_STEP_SUMMARY"
+              rm -rf "$tmpdir"
+              echo "::endgroup::"
+              continue
+            fi
+
+            # Copy all gh-aw workflow files (.md + .lock.yml) and actions lock
+            mkdir -p "$tmpdir/.github/workflows" "$tmpdir/.github/aw"
+            for wf in $GH_AW_WORKFLOWS; do
+              cp ".github/workflows/${wf}.md" "$tmpdir/.github/workflows/${wf}.md"
+              cp ".github/workflows/${wf}.lock.yml" "$tmpdir/.github/workflows/${wf}.lock.yml"
             done
+            cp ".github/aw/actions-lock.json" "$tmpdir/.github/aw/actions-lock.json"
+
+            # Configure git auth for push (gh clone doesn't persist credentials)
+            cd "$tmpdir"
+            git config --local url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+            # Check for changes
+            git add .github/workflows/ .github/aw/
+            if git diff --cached --quiet; then
+              echo "| $repo | In sync | — |" >> "$GITHUB_STEP_SUMMARY"
+              cd - > /dev/null
+              rm -rf "$tmpdir"
+              echo "::endgroup::"
+              continue
+            fi
+
+            # Show what changed
+            changed_files=$(git diff --cached --name-only | tr '\n' ', ' | sed 's/,$//')
+            echo "  Changed: $changed_files"
+
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "| $repo | **Would sync** (dry run) | $changed_files |" >> "$GITHUB_STEP_SUMMARY"
+              cd - > /dev/null
+              rm -rf "$tmpdir"
+              echo "::endgroup::"
+              continue
+            fi
+
+            # Create or update sync branch
+            git checkout -b "$SYNC_BRANCH" 2>/dev/null || git checkout "$SYNC_BRANCH" 2>/dev/null || git checkout -b "$SYNC_BRANCH"
+            git \
+              -c user.name="llm-d-infra-sync" \
+              -c user.email="llm-d-infra-sync@users.noreply.github.com" \
+              commit -s -m "$(cat <<EOF
+          Sync gh-aw workflows from llm-d-infra (${COMMIT_SHA})
+
+          Updated workflows:
+          $(for wf in $GH_AW_WORKFLOWS; do echo "  - ${wf}.md + ${wf}.lock.yml"; done)
+
+          Source: https://github.com/${{ github.repository }}/commit/${{ github.sha }}
+          EOF
+          )"
+            # Force push — we own this branch, and want the PR to show latest state
+            git push --force origin "$SYNC_BRANCH" 2>/dev/null || git push origin "$SYNC_BRANCH"
+
+            # Check if PR already exists for this branch
+            existing_pr=$(gh pr list --repo "$repo" --head "$SYNC_BRANCH" --state open --json url --jq '.[0].url' 2>/dev/null || echo "")
+
+            if [ -n "$existing_pr" ]; then
+              echo "| $repo | **PR updated** | [${existing_pr}](${existing_pr}) |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              # Create new PR
+              pr_url=$(gh pr create \
+                --repo "$repo" \
+                --head "$SYNC_BRANCH" \
+                --title "Sync gh-aw workflows from llm-d-infra" \
+                --body "$(cat <<'PRBODY'
+          ## Automated gh-aw Workflow Sync
+
+          This PR syncs the pre-compiled gh-aw workflows from [`llm-d/llm-d-infra`](https://github.com/llm-d/llm-d-infra).
+
+          ### Synced workflows
+          - `upstream-monitor.md` + `upstream-monitor.lock.yml` — daily upstream dependency monitor
+          - `link-checker.md` + `link-checker.lock.yml` — PR link checker
+          - `typo-checker.md` + `typo-checker.lock.yml` — PR typo checker
+
+          ### What to do
+          1. Review the diff
+          2. Merge — no `gh aw compile` needed, lock files are pre-compiled
+
+          > Created by the [sync workflow](https://github.com/llm-d/llm-d-infra/actions) in llm-d-infra.
+          PRBODY
+              )" 2>&1)
+
+              echo "| $repo | **PR created** | [${pr_url}](${pr_url}) |" >> "$GITHUB_STEP_SUMMARY"
+            fi
+
+            cd - > /dev/null
+            rm -rf "$tmpdir"
+            echo "::endgroup::"
           done <<< "$CONSUMING_REPOS"
 
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Repos using **Local copy** should migrate to the shared reusable workflow." >> "$GITHUB_STEP_SUMMARY"
-          echo "See [migration instructions](https://github.com/llm-d/llm-d-infra#migrating-existing-repos)." >> "$GITHUB_STEP_SUMMARY"
+          echo "_Dry run: ${DRY_RUN}_" >> "$GITHUB_STEP_SUMMARY"
