@@ -1,0 +1,346 @@
+name: Nightly Org-Wide Checks (Typos, Links, Upstream)
+
+# Runs typo checking, link checking, and upstream monitoring across
+# ALL repos in llm-d and llm-d-incubation orgs. Creates issues on
+# the affected repo when problems are found.
+#
+# Replaces per-repo gh-aw workflows (typo-checker.md, link-checker.md,
+# upstream-monitor.md) — those should be deleted from individual repos.
+#
+# Requires: ORG_GITHUB_TOKEN secret with issues:write + contents:read
+# on all repos in both orgs (GitHub App or PAT).
+
+on:
+  schedule:
+    - cron: "0 4 * * *" # Daily 04:00 UTC
+  workflow_dispatch:
+    inputs:
+      repos:
+        description: 'Comma-separated list of repos to check (empty = all)'
+        required: false
+        type: string
+        default: ''
+      skip_typos:
+        description: 'Skip typo checking'
+        required: false
+        type: boolean
+        default: false
+      skip_links:
+        description: 'Skip link checking'
+        required: false
+        type: boolean
+        default: false
+      skip_upstream:
+        description: 'Skip upstream monitoring'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  # -----------------------------------------------------------
+  # Phase 1: Build the repo list
+  # -----------------------------------------------------------
+  enumerate-repos:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.repos.outputs.matrix }}
+    steps:
+      - name: Build repo matrix
+        id: repos
+        env:
+          GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
+          INPUT_REPOS: ${{ inputs.repos }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "$INPUT_REPOS" ]; then
+            # Manual override: use provided list
+            REPOS=$(echo "$INPUT_REPOS" | tr ',' '\n' | jq -R . | jq -s .)
+          else
+            # Auto-discover: all non-archived repos in both orgs
+            LLM_D=$(gh repo list llm-d --limit 100 --no-archived --json nameWithOwner --jq '.[].nameWithOwner')
+            INCUBATION=$(gh repo list llm-d-incubation --limit 100 --no-archived --json nameWithOwner --jq '.[].nameWithOwner')
+            REPOS=$(echo -e "$LLM_D\n$INCUBATION" | grep -v '^$' | sort | jq -R . | jq -s .)
+          fi
+
+          echo "matrix={\"repo\":$REPOS}" >> $GITHUB_OUTPUT
+          echo "Repos to check: $(echo $REPOS | jq -r '. | length')"
+
+  # -----------------------------------------------------------
+  # Phase 2: Check each repo
+  # -----------------------------------------------------------
+  check-repo:
+    needs: enumerate-repos
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.enumerate-repos.outputs.matrix) }}
+      fail-fast: false
+      max-parallel: 5
+    env:
+      GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
+      REPO: ${{ matrix.repo }}
+    steps:
+      - name: Checkout target repo
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ matrix.repo }}
+          token: ${{ secrets.ORG_GITHUB_TOKEN }}
+          persist-credentials: false
+
+      # -------------------------------------------------------
+      # Typo Checking (typos-cli)
+      # -------------------------------------------------------
+      - name: Install typos
+        if: inputs.skip_typos != true
+        run: |
+          TYPOS_VERSION="v1.31.1"
+          curl -fsSL "https://github.com/crate-ci/typos/releases/download/${TYPOS_VERSION}/typos-${TYPOS_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            | tar xz -C /usr/local/bin typos
+
+      - name: Run typo check
+        if: inputs.skip_typos != true
+        id: typos
+        run: |
+          CONFIG="_typos.toml"
+          if [ ! -f "$CONFIG" ]; then
+            # Minimal fallback config
+            cat > /tmp/typos-fallback.toml << 'TOML'
+          [default.extend-words]
+          AKS = "AKS"
+          aks = "aks"
+          IST = "IST"
+          ND = "ND"
+          [files]
+          extend-exclude = ["*.lock", "*.lock.yml", "vendor/", "node_modules/", "*.pb.go"]
+          TOML
+            CONFIG="/tmp/typos-fallback.toml"
+          fi
+
+          typos --config "$CONFIG" --format json . > /tmp/typos-raw.json 2>/dev/null || true
+          TYPO_COUNT=$(jq -s '[.[] | select(.type == "typo")] | length' /tmp/typos-raw.json 2>/dev/null || echo "0")
+          echo "typo_count=$TYPO_COUNT" >> $GITHUB_OUTPUT
+
+      - name: Create typo issue
+        if: inputs.skip_typos != true && steps.typos.outputs.typo_count != '0'
+        run: |
+          # Deduplicate typos
+          jq -r 'select(.type == "typo") | "\(.path):\(.line_num): `\(.typo)` -> `\(.corrections[0] // "?")`"' \
+            /tmp/typos-raw.json | sort -u > /tmp/typos-deduped.txt
+          UNIQUE=$(wc -l < /tmp/typos-deduped.txt | tr -d ' ')
+
+          # Check for existing open issue
+          EXISTING=$(gh issue list --repo "$REPO" --state open --label "typo" --json number \
+            --jq '.[0].number // empty' 2>/dev/null || true)
+
+          # Ensure label exists
+          gh label create "typo" --repo "$REPO" --color "fbca04" \
+            --description "Typo detected by nightly scan" 2>/dev/null || true
+
+          if [ -n "$EXISTING" ]; then
+            # Check for genuinely new typos not already in the issue
+            EXISTING_BODY=$(gh issue view "$EXISTING" --repo "$REPO" --json body --jq '.body' 2>/dev/null || true)
+            NEW_LINES=""
+            while IFS= read -r line; do
+              WORD=$(echo "$line" | grep -oP '`\K[^`]+' | head -1)
+              if ! echo "$EXISTING_BODY" | grep -qF "$WORD" 2>/dev/null; then
+                NEW_LINES="${NEW_LINES}${line}\n"
+              fi
+            done < /tmp/typos-deduped.txt
+
+            if [ -n "$NEW_LINES" ]; then
+              COMMENT="## New typos found ($(date -u +%Y-%m-%d))
+
+          \`\`\`
+          $(echo -e "$NEW_LINES")
+          \`\`\`
+
+          Detected by [nightly scan](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+              gh issue comment "$EXISTING" --repo "$REPO" --body "$COMMENT"
+              echo "Added new typos as comment on $REPO#$EXISTING"
+            else
+              echo "No new typos for $REPO — all already in #$EXISTING"
+            fi
+          else
+            TABLE=$(head -50 /tmp/typos-deduped.txt)
+            REMAINING=$((UNIQUE - 50))
+            BODY="## Typos Detected
+
+          The nightly typo checker found **$UNIQUE** typos.
+
+          \`\`\`
+          $TABLE
+          \`\`\`"
+            [ "$REMAINING" -gt 0 ] && BODY="$BODY
+
+          *... and $REMAINING more. Run \`typos\` locally to see all.*"
+            BODY="$BODY
+
+          ### Fix
+          \`\`\`bash
+          cargo install typos-cli  # or: brew install typos-cli
+          typos --write-changes .
+          \`\`\`
+
+          Add false positives to \`_typos.toml\`.
+
+          ---
+          *Nightly scan from [llm-d-infra](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+
+            gh issue create --repo "$REPO" \
+              --title "Typos detected by nightly scan ($UNIQUE found)" \
+              --body "$BODY" \
+              --label "typo"
+          fi
+
+      # -------------------------------------------------------
+      # Link Checking (lychee)
+      # -------------------------------------------------------
+      - name: Run link check
+        if: inputs.skip_links != true
+        id: links
+        run: |
+          # Install lychee
+          LYCHEE_VERSION="v0.18.0"
+          curl -fsSL "https://github.com/lycheeverse/lychee/releases/download/${LYCHEE_VERSION}/lychee-${LYCHEE_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar xz -C /usr/local/bin lychee
+
+          lychee --no-progress \
+            --format json \
+            --output /tmp/lychee-results.json \
+            --exclude-mail \
+            --max-retries 2 \
+            --timeout 30 \
+            --accept '100..=399' \
+            --exclude 'linkedin\.com' \
+            --exclude 'docs\.google\.com' \
+            --exclude 'localhost' \
+            --exclude '127\.0\.0\.1' \
+            --exclude 'localtest\.me' \
+            --exclude '\.svc\.cluster\.local' \
+            '**/*.md' 2>/dev/null || true
+
+          BROKEN=$(jq '[.fail // {} | to_entries[] | .value[]] | length' /tmp/lychee-results.json 2>/dev/null || echo "0")
+          echo "broken_count=$BROKEN" >> $GITHUB_OUTPUT
+
+      - name: Create link issues
+        if: inputs.skip_links != true && steps.links.outputs.broken_count != '0'
+        run: |
+          # Ensure label exists
+          gh label create "broken-link" --repo "$REPO" --color "d73a4a" \
+            --description "Broken link detected by nightly scan" 2>/dev/null || true
+
+          # Get existing open issues
+          gh issue list --repo "$REPO" --state open --label "broken-link" --json title \
+            --jq '.[].title' > /tmp/existing-link-issues.txt 2>/dev/null || true
+
+          # Extract broken links
+          jq -r '.fail // {} | to_entries[] | .key as $f | .value[] |
+            "\($f)|\(.url)|\(.status.code // .status.text // "unknown")"' \
+            /tmp/lychee-results.json > /tmp/broken-links.txt 2>/dev/null || true
+
+          CREATED=0
+          while IFS='|' read -r file url status; do
+            [ -z "$url" ] && continue
+            SHORT_URL=$(echo "$url" | sed 's|https\?://||' | cut -c1-80)
+
+            # Dedup
+            if grep -qF "$SHORT_URL" /tmp/existing-link-issues.txt 2>/dev/null; then
+              continue
+            fi
+
+            TITLE="Broken link: ${SHORT_URL}"
+            BODY="## Broken Link
+
+          **URL**: $url
+          **Status**: $status
+          **File**: \`$file\`
+
+          ---
+          *Nightly scan from [llm-d-infra](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+
+            gh issue create --repo "$REPO" \
+              --title "${TITLE:0:256}" \
+              --body "$BODY" \
+              --label "broken-link" || true
+
+            CREATED=$((CREATED + 1))
+            [ "$CREATED" -ge 10 ] && break
+          done < /tmp/broken-links.txt
+
+      # -------------------------------------------------------
+      # Upstream Monitor (shell script)
+      # -------------------------------------------------------
+      - name: Checkout infra repo for upstream script
+        if: inputs.skip_upstream != true
+        uses: actions/checkout@v6
+        with:
+          repository: llm-d/llm-d-infra
+          path: _infra
+          sparse-checkout: scripts/check-upstream-releases.sh
+          persist-credentials: false
+
+      - name: Run upstream check
+        if: inputs.skip_upstream != true
+        id: upstream
+        run: |
+          if [ ! -f docs/upstream-versions.md ]; then
+            echo "No docs/upstream-versions.md — skipping upstream check"
+            echo "changed_count=0" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          bash _infra/scripts/check-upstream-releases.sh || true
+          CHANGED=$(jq -r '.changed_count // 0' /tmp/upstream-check-results.json 2>/dev/null || echo "0")
+          echo "changed_count=$CHANGED" >> $GITHUB_OUTPUT
+
+      - name: Create upstream issues
+        if: inputs.skip_upstream != true && steps.upstream.outputs.changed_count != '0'
+        run: |
+          gh label create "upstream-update" --repo "$REPO" --color "0075ca" \
+            --description "Upstream dependency update detected" 2>/dev/null || true
+
+          # Get existing open upstream issues
+          gh issue list --repo "$REPO" --state open --label "upstream-update" --json title \
+            --jq '.[].title' > /tmp/existing-upstream-issues.txt 2>/dev/null || true
+
+          # Parse changes from JSON
+          jq -r '.changes[] | "\(.name)|\(.current_version)|\(.latest_version)|\(.release_url // "")"' \
+            /tmp/upstream-check-results.json 2>/dev/null | while IFS='|' read -r name current latest url; do
+            [ -z "$name" ] && continue
+
+            # Dedup
+            if grep -qF "$name" /tmp/existing-upstream-issues.txt 2>/dev/null; then
+              continue
+            fi
+
+            TITLE="[Upstream Update] $name $current -> $latest"
+            BODY="## Upstream Dependency Update
+
+          | Field | Value |
+          |-------|-------|
+          | Dependency | **$name** |
+          | Current | \`$current\` |
+          | Latest | \`$latest\` |
+          | Release | $url |
+
+          ---
+          *Nightly scan from [llm-d-infra](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+
+            gh issue create --repo "$REPO" \
+              --title "${TITLE:0:256}" \
+              --body "$BODY" \
+              --label "upstream-update" || true
+          done
+
+      # -------------------------------------------------------
+      # Summary
+      # -------------------------------------------------------
+      - name: Summary
+        if: always()
+        run: |
+          echo "## $REPO" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Typos | ${{ steps.typos.outputs.typo_count || '—' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Broken links | ${{ steps.links.outputs.broken_count || '—' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Upstream changes | ${{ steps.upstream.outputs.changed_count || '—' }} |" >> $GITHUB_STEP_SUMMARY
