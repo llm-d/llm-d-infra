@@ -55,12 +55,12 @@ jobs:
 
           if [ -n "$INPUT_REPOS" ]; then
             # Manual override: use provided list
-            REPOS=$(echo "$INPUT_REPOS" | tr ',' '\n' | jq -R . | jq -s .)
+            REPOS=$(echo "$INPUT_REPOS" | tr ',' '\n' | jq -R . | jq -sc .)
           else
             # Auto-discover: all non-archived repos in both orgs
             LLM_D=$(gh repo list llm-d --limit 100 --no-archived --json nameWithOwner --jq '.[].nameWithOwner')
             INCUBATION=$(gh repo list llm-d-incubation --limit 100 --no-archived --json nameWithOwner --jq '.[].nameWithOwner')
-            REPOS=$(echo -e "$LLM_D\n$INCUBATION" | grep -v '^$' | sort | jq -R . | jq -s .)
+            REPOS=$(echo -e "$LLM_D\n$INCUBATION" | grep -v '^$' | sort | jq -R . | jq -sc .)
           fi
 
           echo "matrix={\"repo\":$REPOS}" >> $GITHUB_OUTPUT
