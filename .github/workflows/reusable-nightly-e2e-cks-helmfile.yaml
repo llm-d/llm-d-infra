@@ -579,6 +579,9 @@ jobs:
           # KEDA enables ScaledObject with minReplicas=0 for scale-from-zero tests
           # (CKS does not have the HPAScaleToZero feature gate, so standard HPA rejects minReplicas=0)
           SCALER_BACKEND: keda
+          ENABLE_SCALE_TO_ZERO: "true"
+          # InferencePool API group — v1 on CKS (GAIE helm deploys to inference.networking.k8s.io)
+          POOL_GROUP: inference.networking.k8s.io
           # Skip infra VA/HPA — the E2E tests create their own VA+HPA targeting
           # their own deployments. The infra VA adds a second idle pod to the
           # saturation analysis group, diluting KV cache metrics and preventing

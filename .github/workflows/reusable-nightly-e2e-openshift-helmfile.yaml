@@ -596,6 +596,9 @@ jobs:
           WELL_LIT_PATH_NAME: ${{ inputs.guide_name }}
           RELEASE_NAME_POSTFIX: ${{ inputs.guide_name }}
           SCALER_BACKEND: keda
+          ENABLE_SCALE_TO_ZERO: "true"
+          # InferencePool API group — v1 on OCP (GAIE helm deploys to inference.networking.k8s.io)
+          POOL_GROUP: inference.networking.k8s.io
           DEPLOY_WVA: "true"
           DEPLOY_PROMETHEUS: "true"
           DEPLOY_PROMETHEUS_ADAPTER: "true"
