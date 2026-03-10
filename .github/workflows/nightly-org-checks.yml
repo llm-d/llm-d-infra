@@ -128,13 +128,23 @@ jobs:
             /tmp/typos-raw.json | sort -u > /tmp/typos-deduped.txt
           UNIQUE=$(wc -l < /tmp/typos-deduped.txt | tr -d ' ')
 
-          # Check for existing open issue
-          EXISTING=$(gh issue list --repo "$REPO" --state open --label "typo" --json number \
-            --jq '.[0].number // empty' 2>/dev/null || true)
+          # Ensure label exists (may fail if token lacks label permissions)
+          LABEL_ARGS=""
+          if gh label create "typo" --repo "$REPO" --color "fbca04" \
+            --description "Typo detected by nightly scan" 2>/dev/null; then
+            LABEL_ARGS="--label typo"
+          elif gh label list --repo "$REPO" --json name --jq '.[].name' 2>/dev/null | grep -q '^typo$'; then
+            LABEL_ARGS="--label typo"
+          fi
 
-          # Ensure label exists
-          gh label create "typo" --repo "$REPO" --color "fbca04" \
-            --description "Typo detected by nightly scan" 2>/dev/null || true
+          # Check for existing open issue (search by label if available, else by title)
+          if [ -n "$LABEL_ARGS" ]; then
+            EXISTING=$(gh issue list --repo "$REPO" --state open --label "typo" --json number \
+              --jq '.[0].number // empty' 2>/dev/null || true)
+          else
+            EXISTING=$(gh issue list --repo "$REPO" --state open --json number,title \
+              --jq '.[] | select(.title | test("Typos detected by nightly scan")) | .number' 2>/dev/null | head -1 || true)
+          fi
 
           if [ -n "$EXISTING" ]; then
             # Check for genuinely new typos not already in the issue
@@ -189,7 +199,7 @@ jobs:
             gh issue create --repo "$REPO" \
               --title "Typos detected by nightly scan ($UNIQUE found)" \
               --body "$BODY" \
-              --label "typo"
+              $LABEL_ARGS
           fi
 
       # -------------------------------------------------------
@@ -225,13 +235,23 @@ jobs:
       - name: Create link issues
         if: inputs.skip_links != true && steps.links.outputs.broken_count != '0'
         run: |
-          # Ensure label exists
-          gh label create "broken-link" --repo "$REPO" --color "d73a4a" \
-            --description "Broken link detected by nightly scan" 2>/dev/null || true
+          # Ensure label exists (may fail if token lacks label permissions)
+          LINK_LABEL_ARGS=""
+          if gh label create "broken-link" --repo "$REPO" --color "d73a4a" \
+            --description "Broken link detected by nightly scan" 2>/dev/null; then
+            LINK_LABEL_ARGS="--label broken-link"
+          elif gh label list --repo "$REPO" --json name --jq '.[].name' 2>/dev/null | grep -q '^broken-link$'; then
+            LINK_LABEL_ARGS="--label broken-link"
+          fi
 
           # Get existing open issues
-          gh issue list --repo "$REPO" --state open --label "broken-link" --json title \
-            --jq '.[].title' > /tmp/existing-link-issues.txt 2>/dev/null || true
+          if [ -n "$LINK_LABEL_ARGS" ]; then
+            gh issue list --repo "$REPO" --state open --label "broken-link" --json title \
+              --jq '.[].title' > /tmp/existing-link-issues.txt 2>/dev/null || true
+          else
+            gh issue list --repo "$REPO" --state open --json title \
+              --jq '.[] | select(.title | test("^Broken link:")) | .title' > /tmp/existing-link-issues.txt 2>/dev/null || true
+          fi
 
           # Extract broken links
           jq -r '.fail // {} | to_entries[] | .key as $f | .value[] |
@@ -261,7 +281,7 @@ jobs:
             gh issue create --repo "$REPO" \
               --title "${TITLE:0:256}" \
               --body "$BODY" \
-              --label "broken-link" || true
+              $LINK_LABEL_ARGS || true
 
             CREATED=$((CREATED + 1))
             [ "$CREATED" -ge 10 ] && break
@@ -296,12 +316,23 @@ jobs:
       - name: Create upstream issues
         if: inputs.skip_upstream != true && steps.upstream.outputs.changed_count != '0'
         run: |
-          gh label create "upstream-update" --repo "$REPO" --color "0075ca" \
-            --description "Upstream dependency update detected" 2>/dev/null || true
+          # Ensure label exists (may fail if token lacks label permissions)
+          UPSTREAM_LABEL_ARGS=""
+          if gh label create "upstream-update" --repo "$REPO" --color "0075ca" \
+            --description "Upstream dependency update detected" 2>/dev/null; then
+            UPSTREAM_LABEL_ARGS="--label upstream-update"
+          elif gh label list --repo "$REPO" --json name --jq '.[].name' 2>/dev/null | grep -q '^upstream-update$'; then
+            UPSTREAM_LABEL_ARGS="--label upstream-update"
+          fi
 
           # Get existing open upstream issues
-          gh issue list --repo "$REPO" --state open --label "upstream-update" --json title \
-            --jq '.[].title' > /tmp/existing-upstream-issues.txt 2>/dev/null || true
+          if [ -n "$UPSTREAM_LABEL_ARGS" ]; then
+            gh issue list --repo "$REPO" --state open --label "upstream-update" --json title \
+              --jq '.[].title' > /tmp/existing-upstream-issues.txt 2>/dev/null || true
+          else
+            gh issue list --repo "$REPO" --state open --json title \
+              --jq '.[] | select(.title | test("^\\[Upstream Update\\]")) | .title' > /tmp/existing-upstream-issues.txt 2>/dev/null || true
+          fi
 
           # Parse changes from JSON
           jq -r '.changes[] | "\(.name)|\(.current_version)|\(.latest_version)|\(.release_url // "")"' \
@@ -329,7 +360,7 @@ jobs:
             gh issue create --repo "$REPO" \
               --title "${TITLE:0:256}" \
               --body "$BODY" \
-              --label "upstream-update" || true
+              $UPSTREAM_LABEL_ARGS || true
           done
 
       # -------------------------------------------------------
