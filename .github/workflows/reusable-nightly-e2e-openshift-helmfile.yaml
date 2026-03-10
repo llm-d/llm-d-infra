@@ -595,6 +595,7 @@ jobs:
           DECODE_REPLICAS: "1"
           WELL_LIT_PATH_NAME: ${{ inputs.guide_name }}
           RELEASE_NAME_POSTFIX: ${{ inputs.guide_name }}
+          SCALER_BACKEND: keda
           DEPLOY_WVA: "true"
           DEPLOY_PROMETHEUS: "true"
           DEPLOY_PROMETHEUS_ADAPTER: "true"
@@ -883,14 +884,18 @@ jobs:
           GATEWAY_NAME: infra-${{ inputs.guide_name }}-inference-gateway-istio
           DEPLOYMENT: ms-${{ inputs.guide_name }}-llm-d-modelservice-decode
           WVA_RELEASE_NAME: ${{ env.WVA_RELEASE_NAME }}
+          EPP_SERVICE_NAME: gaie-${{ inputs.guide_name }}-epp
           ENVIRONMENT: openshift
           USE_SIMULATOR: "false"
           CONTROLLER_INSTANCE: ${{ env.WVA_RELEASE_NAME }}
+          SCALER_BACKEND: keda
+          SCALE_TO_ZERO_ENABLED: "true"
         run: |
           echo "Running WVA E2E tests (${{ inputs.test_target }})..."
           echo "  CONTROLLER_NAMESPACE: $CONTROLLER_NAMESPACE"
           echo "  LLMD_NAMESPACE: $LLMD_NAMESPACE"
           echo "  DEPLOYMENT: $DEPLOYMENT"
+          echo "  EPP_SERVICE_NAME: $EPP_SERVICE_NAME"
           echo "  GATEWAY_NAME: $GATEWAY_NAME"
           echo "  MODEL_ID: $MODEL_ID"
           echo "  REQUEST_RATE: $REQUEST_RATE"
@@ -898,6 +903,8 @@ jobs:
           echo "  ENVIRONMENT: $ENVIRONMENT"
           echo "  USE_SIMULATOR: $USE_SIMULATOR"
           echo "  CONTROLLER_INSTANCE: $CONTROLLER_INSTANCE"
+          echo "  SCALER_BACKEND: $SCALER_BACKEND"
+          echo "  SCALE_TO_ZERO_ENABLED: $SCALE_TO_ZERO_ENABLED"
           cd _caller
           make ${{ inputs.test_target }}
 

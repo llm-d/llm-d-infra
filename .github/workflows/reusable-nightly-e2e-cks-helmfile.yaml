@@ -576,6 +576,9 @@ jobs:
           DEPLOY_WVA: "true"
           DEPLOY_PROMETHEUS: "true"
           DEPLOY_PROMETHEUS_ADAPTER: "true"
+          # KEDA enables ScaledObject with minReplicas=0 for scale-from-zero tests
+          # (CKS does not have the HPAScaleToZero feature gate, so standard HPA rejects minReplicas=0)
+          SCALER_BACKEND: keda
           # Skip infra VA/HPA — the E2E tests create their own VA+HPA targeting
           # their own deployments. The infra VA adds a second idle pod to the
           # saturation analysis group, diluting KV cache metrics and preventing
@@ -857,14 +860,19 @@ jobs:
           GATEWAY_NAME: infra-${{ inputs.guide_name }}-inference-gateway-istio
           DEPLOYMENT: ms-${{ inputs.guide_name }}-llm-d-modelservice-decode
           WVA_RELEASE_NAME: ${{ env.WVA_RELEASE_NAME }}
+          EPP_SERVICE_NAME: gaie-${{ inputs.guide_name }}-epp
           ENVIRONMENT: kubernetes
           USE_SIMULATOR: "false"
           CONTROLLER_INSTANCE: ${{ env.WVA_RELEASE_NAME }}
+          SCALER_BACKEND: keda
+          SCALE_TO_ZERO_ENABLED: "true"
         run: |
           echo "Running WVA E2E tests (${{ inputs.test_target }}) on CKS..."
           echo "  CONTROLLER_NAMESPACE: $CONTROLLER_NAMESPACE"
           echo "  LLMD_NAMESPACE: $LLMD_NAMESPACE"
           echo "  DEPLOYMENT: $DEPLOYMENT"
+          echo "  EPP_SERVICE_NAME: $EPP_SERVICE_NAME"
+          echo "  SCALER_BACKEND: $SCALER_BACKEND"
           echo "  MODEL_ID: $MODEL_ID"
           echo "  REQUEST_RATE: $REQUEST_RATE"
           echo "  NUM_PROMPTS: $NUM_PROMPTS"
