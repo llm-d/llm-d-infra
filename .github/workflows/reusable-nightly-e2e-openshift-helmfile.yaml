@@ -890,6 +890,7 @@ jobs:
           CONTROLLER_INSTANCE: ${{ env.WVA_RELEASE_NAME }}
           SCALER_BACKEND: keda
           SCALE_TO_ZERO_ENABLED: "true"
+          KEDA_NAMESPACE: openshift-keda
         run: |
           echo "Running WVA E2E tests (${{ inputs.test_target }})..."
           echo "  CONTROLLER_NAMESPACE: $CONTROLLER_NAMESPACE"
