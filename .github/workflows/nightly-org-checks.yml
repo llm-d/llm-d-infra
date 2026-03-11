@@ -335,7 +335,7 @@ jobs:
           fi
 
           # Parse changes from JSON
-          jq -r '.changes[] | "\(.name)|\(.current_version)|\(.latest_version)|\(.release_url // "")"' \
+          jq -r '.changes[] | "\(.name)|\(.current_pin)|\(.latest_version)|\(.release_url // "")"' \
             /tmp/upstream-check-results.json 2>/dev/null | while IFS='|' read -r name current latest url; do
             [ -z "$name" ] && continue
 
