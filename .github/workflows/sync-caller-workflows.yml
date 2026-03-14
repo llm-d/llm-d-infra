@@ -61,7 +61,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout infra repo (source of truth)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Sync workflow files to consuming repos
         env:
