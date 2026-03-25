@@ -511,6 +511,11 @@ jobs:
         run: |
           echo "Creating namespace $NAMESPACE..."
           kubectl create namespace "$NAMESPACE" || echo "Namespace already exists"
+          
+          echo "Granting \"anyuid\" Security Context Constraint to serviceAccount \"default\" on namespace \"${NAMESPACE}\""
+          oc adm policy add-scc-to-user anyuid -z default -n ${NAMESPACE}
+          echo "Granting \"privileged\" Security Context Constraint to serviceAccount \"default\" on namespace \"${NAMESPACE}\""
+          oc adm policy add-scc-to-user privileged -z default -n ${NAMESPACE}
 
           echo "Creating HF token secret in $NAMESPACE..."
           kubectl create secret generic llm-d-hf-token \
