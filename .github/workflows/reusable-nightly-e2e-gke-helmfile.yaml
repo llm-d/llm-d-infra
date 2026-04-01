@@ -375,8 +375,11 @@ jobs:
             kubectl delete httproute --all -n "$NAMESPACE" --ignore-not-found || true
             kubectl delete gateway --all -n "$NAMESPACE" --ignore-not-found || true
 
+            echo "  Force-deleting stuck pods in $NAMESPACE..."
+            kubectl delete pods -n "$NAMESPACE" --all --force --grace-period=0 2>/dev/null || true
             echo "  Deleting namespace: $NAMESPACE"
-            kubectl delete namespace "$NAMESPACE" --ignore-not-found --timeout=120s || true
+            kubectl delete namespace "$NAMESPACE" --ignore-not-found --timeout=120s || \
+              kubectl delete namespace "$NAMESPACE" --force --grace-period=0 2>/dev/null || true
           else
             echo "Namespace $NAMESPACE does not exist, skipping"
           fi
@@ -712,7 +715,10 @@ jobs:
 
           # Delete namespace
           echo "Deleting namespace $NAMESPACE..."
-          kubectl delete namespace "$NAMESPACE" --ignore-not-found --timeout=120s || true
+          # Force-delete any pods stuck in Terminating to unblock namespace deletion
+          kubectl delete pods -n "$NAMESPACE" --all --force --grace-period=0 2>/dev/null || true
+          kubectl delete namespace "$NAMESPACE" --ignore-not-found --timeout=120s || \
+            kubectl delete namespace "$NAMESPACE" --force --grace-period=0 2>/dev/null || true
 
           echo "Nightly cleanup complete"
 

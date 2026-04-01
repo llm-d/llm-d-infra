@@ -652,12 +652,16 @@ jobs:
             helm uninstall "$release" -n "$LLMD_NAMESPACE" --ignore-not-found --wait --timeout 60s || true
           done
 
-          # Delete namespaces
+          # Delete namespaces — force-delete stuck pods first, then force namespace if graceful times out
+          kubectl delete pods -n "$LLMD_NAMESPACE" --all --force --grace-period=0 2>/dev/null || true
           echo "Deleting namespace $LLMD_NAMESPACE..."
-          kubectl delete namespace "$LLMD_NAMESPACE" --ignore-not-found --timeout=120s || true
+          kubectl delete namespace "$LLMD_NAMESPACE" --ignore-not-found --timeout=120s || \
+            kubectl delete namespace "$LLMD_NAMESPACE" --force --grace-period=0 2>/dev/null || true
 
+          kubectl delete pods -n "$WVA_NAMESPACE" --all --force --grace-period=0 2>/dev/null || true
           echo "Deleting namespace $WVA_NAMESPACE..."
-          kubectl delete namespace "$WVA_NAMESPACE" --ignore-not-found --timeout=120s || true
+          kubectl delete namespace "$WVA_NAMESPACE" --ignore-not-found --timeout=120s || \
+            kubectl delete namespace "$WVA_NAMESPACE" --force --grace-period=0 2>/dev/null || true
 
           # Clean up cluster-scoped WVA resources owned by this nightly's release
           kubectl delete clusterrole,clusterrolebinding \

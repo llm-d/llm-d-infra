@@ -461,8 +461,10 @@ jobs:
               kubectl delete httproute --all -n "$ns" --ignore-not-found || true
               kubectl delete gateway --all -n "$ns" --ignore-not-found || true
 
+              kubectl delete pods -n "$ns" --all --force --grace-period=0 2>/dev/null || true
               echo "  Deleting namespace: $ns"
-              kubectl delete namespace "$ns" --ignore-not-found --timeout=120s || true
+              kubectl delete namespace "$ns" --ignore-not-found --timeout=120s || \
+                kubectl delete namespace "$ns" --force --grace-period=0 2>/dev/null || true
             else
               echo "Namespace $ns does not exist, skipping"
             fi
@@ -1043,12 +1045,16 @@ jobs:
             done
           done
 
-          # Delete namespaces
+          # Delete namespaces — force-delete stuck pods first, then force namespace if graceful times out
+          kubectl delete pods -n "$NAMESPACE" --all --force --grace-period=0 2>/dev/null || true
           echo "Deleting namespace $NAMESPACE..."
-          kubectl delete namespace "$NAMESPACE" --ignore-not-found --timeout=120s || true
+          kubectl delete namespace "$NAMESPACE" --ignore-not-found --timeout=120s || \
+            kubectl delete namespace "$NAMESPACE" --force --grace-period=0 2>/dev/null || true
           if [ "${{ inputs.deploy_wva }}" = "true" ] && [ -n "$WVA_NAMESPACE" ]; then
+            kubectl delete pods -n "$WVA_NAMESPACE" --all --force --grace-period=0 2>/dev/null || true
             echo "Deleting namespace $WVA_NAMESPACE..."
-            kubectl delete namespace "$WVA_NAMESPACE" --ignore-not-found --timeout=120s || true
+            kubectl delete namespace "$WVA_NAMESPACE" --ignore-not-found --timeout=120s || \
+              kubectl delete namespace "$WVA_NAMESPACE" --force --grace-period=0 2>/dev/null || true
           fi
 
           # Clean up cluster-scoped WVA resources
