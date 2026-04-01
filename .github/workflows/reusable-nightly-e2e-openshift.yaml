@@ -653,15 +653,27 @@ jobs:
           done
 
           # Delete namespaces — force-delete stuck pods first, then force namespace if graceful times out
-          kubectl delete pods -n "$LLMD_NAMESPACE" --all --force --grace-period=0 2>/dev/null || true
+          kubectl delete pods -n "$LLMD_NAMESPACE" --all --force --grace-period=0 --wait=false 2>/dev/null || true
           echo "Deleting namespace $LLMD_NAMESPACE..."
           kubectl delete namespace "$LLMD_NAMESPACE" --ignore-not-found --timeout=120s || \
             kubectl delete namespace "$LLMD_NAMESPACE" --force --grace-period=0 2>/dev/null || true
+          if kubectl get namespace "$LLMD_NAMESPACE" 2>/dev/null | grep -q Terminating; then
+            echo "Warning: namespace $LLMD_NAMESPACE still Terminating — clearing finalizers"
+            kubectl get namespace "$LLMD_NAMESPACE" -o json | \
+              jq '.spec.finalizers = []' | \
+              kubectl replace --raw "/api/v1/namespaces/$LLMD_NAMESPACE/finalize" -f - 2>/dev/null || true
+          fi
 
-          kubectl delete pods -n "$WVA_NAMESPACE" --all --force --grace-period=0 2>/dev/null || true
+          kubectl delete pods -n "$WVA_NAMESPACE" --all --force --grace-period=0 --wait=false 2>/dev/null || true
           echo "Deleting namespace $WVA_NAMESPACE..."
           kubectl delete namespace "$WVA_NAMESPACE" --ignore-not-found --timeout=120s || \
             kubectl delete namespace "$WVA_NAMESPACE" --force --grace-period=0 2>/dev/null || true
+          if kubectl get namespace "$WVA_NAMESPACE" 2>/dev/null | grep -q Terminating; then
+            echo "Warning: namespace $WVA_NAMESPACE still Terminating — clearing finalizers"
+            kubectl get namespace "$WVA_NAMESPACE" -o json | \
+              jq '.spec.finalizers = []' | \
+              kubectl replace --raw "/api/v1/namespaces/$WVA_NAMESPACE/finalize" -f - 2>/dev/null || true
+          fi
 
           # Clean up cluster-scoped WVA resources owned by this nightly's release
           kubectl delete clusterrole,clusterrolebinding \

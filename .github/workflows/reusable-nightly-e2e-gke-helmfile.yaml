@@ -376,10 +376,17 @@ jobs:
             kubectl delete gateway --all -n "$NAMESPACE" --ignore-not-found || true
 
             echo "  Force-deleting stuck pods in $NAMESPACE..."
-            kubectl delete pods -n "$NAMESPACE" --all --force --grace-period=0 2>/dev/null || true
+            kubectl delete pods -n "$NAMESPACE" --all --force --grace-period=0 --wait=false 2>/dev/null || true
             echo "  Deleting namespace: $NAMESPACE"
             kubectl delete namespace "$NAMESPACE" --ignore-not-found --timeout=120s || \
               kubectl delete namespace "$NAMESPACE" --force --grace-period=0 2>/dev/null || true
+            # Last resort: clear finalizers on namespace stuck in Terminating
+            if kubectl get namespace "$NAMESPACE" 2>/dev/null | grep -q Terminating; then
+              echo "Warning: namespace $NAMESPACE still Terminating — clearing finalizers"
+              kubectl get namespace "$NAMESPACE" -o json | \
+                jq '.spec.finalizers = []' | \
+                kubectl replace --raw "/api/v1/namespaces/$NAMESPACE/finalize" -f - 2>/dev/null || true
+            fi
           else
             echo "Namespace $NAMESPACE does not exist, skipping"
           fi
@@ -716,9 +723,16 @@ jobs:
           # Delete namespace
           echo "Deleting namespace $NAMESPACE..."
           # Force-delete any pods stuck in Terminating to unblock namespace deletion
-          kubectl delete pods -n "$NAMESPACE" --all --force --grace-period=0 2>/dev/null || true
+          kubectl delete pods -n "$NAMESPACE" --all --force --grace-period=0 --wait=false 2>/dev/null || true
           kubectl delete namespace "$NAMESPACE" --ignore-not-found --timeout=120s || \
             kubectl delete namespace "$NAMESPACE" --force --grace-period=0 2>/dev/null || true
+          # Last resort: clear finalizers on namespace stuck in Terminating
+          if kubectl get namespace "$NAMESPACE" 2>/dev/null | grep -q Terminating; then
+            echo "Warning: namespace $NAMESPACE still Terminating — clearing finalizers"
+            kubectl get namespace "$NAMESPACE" -o json | \
+              jq '.spec.finalizers = []' | \
+              kubectl replace --raw "/api/v1/namespaces/$NAMESPACE/finalize" -f - 2>/dev/null || true
+          fi
 
           echo "Nightly cleanup complete"
 

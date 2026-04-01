@@ -461,10 +461,16 @@ jobs:
               kubectl delete httproute --all -n "$ns" --ignore-not-found || true
               kubectl delete gateway --all -n "$ns" --ignore-not-found || true
 
-              kubectl delete pods -n "$ns" --all --force --grace-period=0 2>/dev/null || true
+              kubectl delete pods -n "$ns" --all --force --grace-period=0 --wait=false 2>/dev/null || true
               echo "  Deleting namespace: $ns"
               kubectl delete namespace "$ns" --ignore-not-found --timeout=120s || \
                 kubectl delete namespace "$ns" --force --grace-period=0 2>/dev/null || true
+              if kubectl get namespace "$ns" 2>/dev/null | grep -q Terminating; then
+                echo "Warning: namespace $ns still Terminating — clearing finalizers"
+                kubectl get namespace "$ns" -o json | \
+                  jq '.spec.finalizers = []' | \
+                  kubectl replace --raw "/api/v1/namespaces/$ns/finalize" -f - 2>/dev/null || true
+              fi
             else
               echo "Namespace $ns does not exist, skipping"
             fi
@@ -1046,15 +1052,27 @@ jobs:
           done
 
           # Delete namespaces — force-delete stuck pods first, then force namespace if graceful times out
-          kubectl delete pods -n "$NAMESPACE" --all --force --grace-period=0 2>/dev/null || true
+          kubectl delete pods -n "$NAMESPACE" --all --force --grace-period=0 --wait=false 2>/dev/null || true
           echo "Deleting namespace $NAMESPACE..."
           kubectl delete namespace "$NAMESPACE" --ignore-not-found --timeout=120s || \
             kubectl delete namespace "$NAMESPACE" --force --grace-period=0 2>/dev/null || true
+          if kubectl get namespace "$NAMESPACE" 2>/dev/null | grep -q Terminating; then
+            echo "Warning: namespace $NAMESPACE still Terminating — clearing finalizers"
+            kubectl get namespace "$NAMESPACE" -o json | \
+              jq '.spec.finalizers = []' | \
+              kubectl replace --raw "/api/v1/namespaces/$NAMESPACE/finalize" -f - 2>/dev/null || true
+          fi
           if [ "${{ inputs.deploy_wva }}" = "true" ] && [ -n "$WVA_NAMESPACE" ]; then
-            kubectl delete pods -n "$WVA_NAMESPACE" --all --force --grace-period=0 2>/dev/null || true
+            kubectl delete pods -n "$WVA_NAMESPACE" --all --force --grace-period=0 --wait=false 2>/dev/null || true
             echo "Deleting namespace $WVA_NAMESPACE..."
             kubectl delete namespace "$WVA_NAMESPACE" --ignore-not-found --timeout=120s || \
               kubectl delete namespace "$WVA_NAMESPACE" --force --grace-period=0 2>/dev/null || true
+            if kubectl get namespace "$WVA_NAMESPACE" 2>/dev/null | grep -q Terminating; then
+              echo "Warning: namespace $WVA_NAMESPACE still Terminating — clearing finalizers"
+              kubectl get namespace "$WVA_NAMESPACE" -o json | \
+                jq '.spec.finalizers = []' | \
+                kubectl replace --raw "/api/v1/namespaces/$WVA_NAMESPACE/finalize" -f - 2>/dev/null || true
+            fi
           fi
 
           # Clean up cluster-scoped WVA resources
