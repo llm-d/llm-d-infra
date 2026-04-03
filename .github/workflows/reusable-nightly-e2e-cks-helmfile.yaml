@@ -118,7 +118,7 @@ on:
 
       # --- WVA integration (optional — enables WVA e2e tests) ---
       deploy_wva:
-        description: 'Deploy WVA controller via install.sh (enables WVA-specific steps)'
+        description: 'Deploy WVA guide via make (enables WVA-specific steps)'
         required: false
         type: boolean
         default: false
@@ -142,26 +142,6 @@ on:
         required: false
         type: string
         default: ''
-      request_rate:
-        description: 'Request rate for WVA tests (req/s)'
-        required: false
-        type: string
-        default: '20'
-      num_prompts:
-        description: 'Number of prompts for WVA tests'
-        required: false
-        type: string
-        default: '3000'
-      max_num_seqs:
-        description: 'vLLM max batch size for WVA tests'
-        required: false
-        type: string
-        default: '1'
-      hpa_stabilization_seconds:
-        description: 'HPA stabilization window in seconds'
-        required: false
-        type: string
-        default: '240'
 
       # --- Test configuration ---
       e2e_validate_args:
@@ -199,10 +179,6 @@ jobs:
       ACCELERATOR_TYPE: ${{ inputs.accelerator_type }}
       # WVA-specific env vars (only used when deploy_wva is true)
       MODEL_ID: ${{ inputs.model_id }}
-      REQUEST_RATE: ${{ inputs.request_rate }}
-      NUM_PROMPTS: ${{ inputs.num_prompts }}
-      MAX_NUM_SEQS: ${{ inputs.max_num_seqs }}
-      HPA_STABILIZATION_SECONDS: ${{ inputs.hpa_stabilization_seconds }}
       WVA_IMAGE_TAG: ${{ inputs.wva_image_tag }}
       WVA_NAMESPACE: ${{ format('{0}-system', inputs.namespace) }}
       WVA_RELEASE_NAME: ${{ format('wva-{0}', inputs.guide_name) }}
@@ -425,13 +401,6 @@ jobs:
             if kubectl get namespace "$ns" &>/dev/null; then
               echo "=== Cleaning up namespace: $ns ==="
 
-              # Clean up WVA-specific resources
-              if [ "${{ inputs.deploy_wva }}" = "true" ]; then
-                echo "  Removing HPAs and VAs..."
-                kubectl delete hpa -n "$ns" -l app.kubernetes.io/name=workload-variant-autoscaler --ignore-not-found || true
-                kubectl delete variantautoscaling -n "$ns" -l app.kubernetes.io/name=workload-variant-autoscaler --ignore-not-found || true
-              fi
-
               # Destroy helmfile releases if helmfile.yaml.gotmpl exists
               if [ -f "$GUIDE_PATH/helmfile.yaml.gotmpl" ]; then
                 echo "  Destroying helmfile releases..."
@@ -566,59 +535,22 @@ jobs:
           echo "Running pre-deploy script..."
           ${{ inputs.pre_deploy_script }}
 
-      - name: Deploy guide via WVA install.sh
+      - name: Deploy WVA guide via make
         if: inputs.deploy_wva
         env:
           ENVIRONMENT: kubernetes
-          INSTALL_GATEWAY_CTRLPLANE: "false"
-          BENCHMARK_MODE: "false"
-          E2E_TESTS_ENABLED: "true"
-          NAMESPACE_SCOPED: "false"
           LLMD_NS: ${{ inputs.namespace }}
-          WVA_NS: ${{ env.WVA_NAMESPACE }}
+          CONTROLLER_NAMESPACE: ${{ env.WVA_NAMESPACE }}
           CONTROLLER_INSTANCE: ${{ env.WVA_RELEASE_NAME }}
-          VLLM_MAX_NUM_SEQS: ${{ inputs.max_num_seqs }}
-          DECODE_REPLICAS: "1"
           WELL_LIT_PATH_NAME: ${{ inputs.guide_name }}
           RELEASE_NAME_POSTFIX: ${{ inputs.guide_name }}
-          DEPLOY_WVA: "true"
-          DEPLOY_PROMETHEUS: "true"
-          DEPLOY_PROMETHEUS_ADAPTER: "true"
-          # KEDA enables ScaledObject with minReplicas=0 for scale-from-zero tests
-          # (CKS does not have the HPAScaleToZero feature gate, so standard HPA rejects minReplicas=0)
-          SCALER_BACKEND: keda
-          ENABLE_SCALE_TO_ZERO: "true"
-          # InferencePool API group — v1 on CKS (GAIE helm deploys to inference.networking.k8s.io)
-          POOL_GROUP: inference.networking.k8s.io
-          # Skip infra VA/HPA — the E2E tests create their own VA+HPA targeting
-          # their own deployments. The infra VA adds a second idle pod to the
-          # saturation analysis group, diluting KV cache metrics and preventing
-          # scale-up from triggering (matches PR CI approach).
-          DEPLOY_VA: "false"
-          DEPLOY_HPA: "false"
         run: |
-          echo "Deploying $GUIDE_NAME via WVA install.sh on CKS..."
-          echo "  MODEL_ID: $MODEL_ID"
-          echo "  ACCELERATOR_TYPE: $ACCELERATOR_TYPE"
+          echo "Deploying WVA guide on CKS..."
           echo "  LLMD_NS: $LLMD_NS"
-          echo "  WVA_NS: $WVA_NS"
-          echo "  WVA_RELEASE_NAME: $WVA_RELEASE_NAME"
+          echo "  CONTROLLER_NAMESPACE: $CONTROLLER_NAMESPACE"
+          echo "  CONTROLLER_INSTANCE: $CONTROLLER_INSTANCE"
           cd _caller
-          # WVA install.sh expects llm-d/ as a subdirectory (LLM_D_PROJECT=llm-d)
-          # but the helmfile workflow checks out llm-d/llm-d at the workspace root.
-          # Symlink so install.sh can find guides/ and charts/ where it expects them.
-          if [ ! -d "llm-d" ] && [ -d "$GITHUB_WORKSPACE/guides" ]; then
-            ln -s "$GITHUB_WORKSPACE" llm-d
-            echo "  Symlinked _caller/llm-d → $GITHUB_WORKSPACE"
-          fi
-          # CKS/CoreWeave GPU nodes have NodeAffinity that prevents the
-          # prometheus node-exporter DaemonSet from scheduling.  Disable it
-          # so the helm install doesn't time out waiting for unschedulable pods.
-          if [ -f deploy/kubernetes/install.sh ]; then
-            sed -i 's|helm upgrade --install kube-prometheus-stack|helm upgrade --install kube-prometheus-stack --set nodeExporter.enabled=false|' deploy/kubernetes/install.sh
-            echo "  Patched kubernetes/install.sh: disabled prometheus-node-exporter"
-          fi
-          ./deploy/install.sh --model "$MODEL_ID" --accelerator "$ACCELERATOR_TYPE" --release-name "$WVA_RELEASE_NAME"
+          make nightly-deploy-wva-guide
           cd "$GITHUB_WORKSPACE"
 
       - name: Deploy guide via helmfile
@@ -845,9 +777,6 @@ jobs:
           echo "Waiting 180s for model to load and metrics to flow..."
           sleep 180
 
-          echo "--- VariantAutoscaling Status ---"
-          kubectl get variantautoscaling -n "$NAMESPACE" -o wide || true
-
           echo "--- WVA Controller Logs (last 50 lines) ---"
           kubectl logs -n "$CONTROLLER_NAMESPACE" -l app.kubernetes.io/name=workload-variant-autoscaler --tail=50 --all-containers 2>/dev/null || echo "Could not retrieve WVA controller logs"
 
@@ -863,7 +792,7 @@ jobs:
           cd _caller
           go mod download
 
-      - name: Run WVA E2E tests
+      - name: Run WVA E2E validation
         if: inputs.deploy_wva && inputs.test_target != ''
         env:
           CONTROLLER_NAMESPACE: ${{ env.WVA_NAMESPACE }}
@@ -873,23 +802,15 @@ jobs:
           WVA_RELEASE_NAME: ${{ env.WVA_RELEASE_NAME }}
           EPP_SERVICE_NAME: gaie-${{ inputs.guide_name }}-epp
           ENVIRONMENT: kubernetes
-          USE_SIMULATOR: "false"
           CONTROLLER_INSTANCE: ${{ env.WVA_RELEASE_NAME }}
-          SCALER_BACKEND: keda
-          SCALE_TO_ZERO_ENABLED: "true"
-          KEDA_NAMESPACE: keda
         run: |
-          echo "Running WVA E2E tests (${{ inputs.test_target }}) on CKS..."
+          echo "Running WVA E2E validation (${{ inputs.test_target }}) on CKS..."
           echo "  CONTROLLER_NAMESPACE: $CONTROLLER_NAMESPACE"
           echo "  LLMD_NAMESPACE: $LLMD_NAMESPACE"
           echo "  DEPLOYMENT: $DEPLOYMENT"
           echo "  EPP_SERVICE_NAME: $EPP_SERVICE_NAME"
-          echo "  SCALER_BACKEND: $SCALER_BACKEND"
           echo "  MODEL_ID: $MODEL_ID"
-          echo "  REQUEST_RATE: $REQUEST_RATE"
-          echo "  NUM_PROMPTS: $NUM_PROMPTS"
           echo "  ENVIRONMENT: $ENVIRONMENT"
-          echo "  USE_SIMULATOR: $USE_SIMULATOR"
           echo "  CONTROLLER_INSTANCE: $CONTROLLER_INSTANCE"
           cd _caller
           make ${{ inputs.test_target }}
@@ -913,10 +834,6 @@ jobs:
           echo "--- All Pods in Test Namespaces ---"
           kubectl get pods -n "$NAMESPACE" -o wide 2>/dev/null || true
           kubectl get pods -n "$CONTROLLER_NAMESPACE" -o wide 2>/dev/null || true
-
-          echo "--- HPA Status ---"
-          kubectl get hpa -n "$NAMESPACE" -o wide 2>/dev/null || echo "No HPAs found"
-          kubectl describe hpa -n "$NAMESPACE" 2>/dev/null || true
 
           echo "=== Diagnostic Dump Complete ==="
 
@@ -944,8 +861,6 @@ jobs:
           if [ "${{ inputs.deploy_wva }}" = "true" ]; then
             echo "| Caller Repo | ${{ inputs.caller_repo }} |" >> $GITHUB_STEP_SUMMARY
             echo "| Model | $MODEL_ID |" >> $GITHUB_STEP_SUMMARY
-            echo "| Request Rate | $REQUEST_RATE req/s |" >> $GITHUB_STEP_SUMMARY
-            echo "| Prompts | $NUM_PROMPTS |" >> $GITHUB_STEP_SUMMARY
             echo "| Test Target | ${{ inputs.test_target }} |" >> $GITHUB_STEP_SUMMARY
           fi
 
