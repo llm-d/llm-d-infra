@@ -473,7 +473,7 @@ jobs:
 
       - name: Upload image metadata
         if: always()
-        uses: actions/upload-artifact@v7.0.0
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: image-metadata
           path: /tmp/image-metadata.json
