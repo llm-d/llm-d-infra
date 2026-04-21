@@ -1,11 +1,11 @@
-name: Nightly Org-Wide Checks (Typos, Links, Upstream)
+name: Nightly Org-Wide Checks (Typos, Links)
 
-# Runs typo checking, link checking, and upstream monitoring across
-# ALL repos in llm-d and llm-d-incubation orgs. Creates issues on
-# the affected repo when problems are found.
+# Runs typo checking and link checking across ALL repos in llm-d and
+# llm-d-incubation orgs. Creates issues on the affected repo when
+# problems are found.
 #
-# Replaces per-repo gh-aw workflows (typo-checker.md, link-checker.md,
-# upstream-monitor.md) — those should be deleted from individual repos.
+# Replaces per-repo gh-aw workflows (typo-checker.md, link-checker.md)
+# — those should be deleted from individual repos.
 #
 # Requires: ORG_GITHUB_TOKEN secret with issues:write + contents:read
 # on all repos in both orgs (GitHub App or PAT).
@@ -27,11 +27,6 @@ on:
         default: false
       skip_links:
         description: 'Skip link checking'
-        required: false
-        type: boolean
-        default: false
-      skip_upstream:
-        description: 'Skip upstream monitoring'
         required: false
         type: boolean
         default: false
@@ -288,82 +283,6 @@ jobs:
           done < /tmp/broken-links.txt
 
       # -------------------------------------------------------
-      # Upstream Monitor (shell script)
-      # -------------------------------------------------------
-      - name: Checkout infra repo for upstream script
-        if: inputs.skip_upstream != true
-        uses: actions/checkout@v6
-        with:
-          repository: llm-d/llm-d-infra
-          path: _infra
-          sparse-checkout: scripts/check-upstream-releases.sh
-          persist-credentials: false
-
-      - name: Run upstream check
-        if: inputs.skip_upstream != true
-        id: upstream
-        run: |
-          if [ ! -f docs/upstream-versions.md ]; then
-            echo "No docs/upstream-versions.md — skipping upstream check"
-            echo "changed_count=0" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          bash _infra/scripts/check-upstream-releases.sh || true
-          CHANGED=$(jq -r '.changed_count // 0' /tmp/upstream-check-results.json 2>/dev/null || echo "0")
-          echo "changed_count=$CHANGED" >> $GITHUB_OUTPUT
-
-      - name: Create upstream issues
-        if: inputs.skip_upstream != true && steps.upstream.outputs.changed_count != '0'
-        run: |
-          # Ensure label exists (may fail if token lacks label permissions)
-          UPSTREAM_LABEL_ARGS=""
-          if gh label create "upstream-update" --repo "$REPO" --color "0075ca" \
-            --description "Upstream dependency update detected" 2>/dev/null; then
-            UPSTREAM_LABEL_ARGS="--label upstream-update"
-          elif gh label list --repo "$REPO" --json name --jq '.[].name' 2>/dev/null | grep -q '^upstream-update$'; then
-            UPSTREAM_LABEL_ARGS="--label upstream-update"
-          fi
-
-          # Get existing open upstream issues
-          if [ -n "$UPSTREAM_LABEL_ARGS" ]; then
-            gh issue list --repo "$REPO" --state open --label "upstream-update" --json title \
-              --jq '.[].title' > /tmp/existing-upstream-issues.txt 2>/dev/null || true
-          else
-            gh issue list --repo "$REPO" --state open --json title \
-              --jq '.[] | select(.title | test("^\\[Upstream Update\\]")) | .title' > /tmp/existing-upstream-issues.txt 2>/dev/null || true
-          fi
-
-          # Parse changes from JSON
-          jq -r '.changes[] | "\(.name)|\(.current_pin)|\(.latest_version)|\(.release_url // "")"' \
-            /tmp/upstream-check-results.json 2>/dev/null | while IFS='|' read -r name current latest url; do
-            [ -z "$name" ] && continue
-
-            # Dedup
-            if grep -qF "$name" /tmp/existing-upstream-issues.txt 2>/dev/null; then
-              continue
-            fi
-
-            TITLE="[Upstream Update] $name $current -> $latest"
-            BODY="## Upstream Dependency Update
-
-          | Field | Value |
-          |-------|-------|
-          | Dependency | **$name** |
-          | Current | \`$current\` |
-          | Latest | \`$latest\` |
-          | Release | $url |
-
-          ---
-          *Nightly scan from [llm-d-infra](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
-
-            gh issue create --repo "$REPO" \
-              --title "${TITLE:0:256}" \
-              --body "$BODY" \
-              $UPSTREAM_LABEL_ARGS || true
-          done
-
-      # -------------------------------------------------------
       # Summary
       # -------------------------------------------------------
       - name: Summary
@@ -374,4 +293,3 @@ jobs:
           echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Typos | ${{ steps.typos.outputs.typo_count || '—' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Broken links | ${{ steps.links.outputs.broken_count || '—' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Upstream changes | ${{ steps.upstream.outputs.changed_count || '—' }} |" >> $GITHUB_STEP_SUMMARY

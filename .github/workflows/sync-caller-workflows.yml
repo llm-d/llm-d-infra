@@ -13,8 +13,6 @@ on:
   push:
     branches: [main]
     paths:
-      - '.github/workflows/upstream-monitor.md'
-      - '.github/workflows/upstream-monitor.lock.yml'
       - '.github/workflows/link-checker.md'
       - '.github/workflows/link-checker.lock.yml'
       - '.github/workflows/typo-checker.md'
@@ -53,7 +51,7 @@ env:
     llm-d-incubation/llm-d-modelservice
     llm-d-incubation/secure-inference
 
-  GH_AW_WORKFLOWS: "upstream-monitor link-checker typo-checker"
+  GH_AW_WORKFLOWS: "link-checker typo-checker"
   SYNC_BRANCH: "sync/gh-aw-workflows"
 
 jobs:
@@ -172,7 +170,6 @@ jobs:
           This PR syncs the pre-compiled gh-aw workflows from [`llm-d/llm-d-infra`](https://github.com/llm-d/llm-d-infra).
 
           ### Synced workflows
-          - `upstream-monitor.md` + `upstream-monitor.lock.yml` — daily upstream dependency monitor
           - `link-checker.md` + `link-checker.lock.yml` — PR link checker
           - `typo-checker.md` + `typo-checker.lock.yml` — PR typo checker
 
