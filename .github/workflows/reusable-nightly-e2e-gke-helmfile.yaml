@@ -194,7 +194,7 @@ jobs:
       - name: Install prerequisites (helm, helmfile, yq)
         run: |
           # Install standard llm-d prerequisites (kubectl, helm, helmfile, yq)
-          ./guides/prereq/client-setup/install-deps.sh
+          ./helpers/client-setup/install-deps.sh
 
           # Install jq if not present
           if ! command -v jq &>/dev/null; then
