@@ -1,0 +1,318 @@
+name: Reusable - Nightly E2E XPU
+
+# Reusable workflow for nightly e2e testing of kustomize-based llm-d guides on
+# the self-hosted `xpu` runner (Intel GPU host with a local Kubernetes cluster).
+# Modeled on the kustomize-migrated XPU workflows in llm-d/llm-d (see
+# llm-d/llm-d#1251, #1297, #1304). The runner is itself the k8s control-plane,
+# so kubectl works against the local cluster once install-deps.sh has run —
+# no cloud auth.
+#
+# Per-guide layout this reusable assumes (as of the 2026-04-29..05-01
+# migration):
+#   - Scheduler: `helm install` of the Gateway API Inference Extension
+#     standalone chart, fed by one or more values files under guides/recipes/
+#     and the guide's own scheduler/<guide>.values.yaml. No HTTPRoute.
+#   - Model server: `kubectl apply -k` against
+#     guides/<guide_name>/modelserver/xpu/vllm/. Image overrides use
+#     `kustomize edit set image REPLACE_MODEL_SERVER_IMAGE=<ref>`.
+#   - Validation: e2e-validate.sh with GATEWAY_HOST pointing at the EPP
+#     service ClusterIP DNS (standalone mode has no Gateway resource).
+#
+# Usage from a caller workflow (in llm-d/llm-d):
+#
+#   jobs:
+#     nightly:
+#       uses: llm-d/llm-d-infra/.github/workflows/reusable-nightly-e2e-xpu.yaml@main
+#       with:
+#         guide_name: optimized-baseline
+#         namespace: llm-d-xpu-is
+#         scheduler_release_name: optimized-baseline
+#         scheduler_values_files: |
+#           guides/recipes/scheduler/base.values.yaml
+#           guides/recipes/scheduler/features/monitoring.values.yaml
+#           guides/optimized-baseline/scheduler/optimized-baseline.values.yaml
+#       secrets: inherit
+
+on:
+  workflow_call:
+    inputs:
+      # --- Guide configuration ---
+      guide_name:
+        description: 'Guide directory name under guides/ in llm-d/llm-d (e.g. optimized-baseline, pd-disaggregation, precise-prefix-cache-aware)'
+        required: true
+        type: string
+      namespace:
+        description: 'Kubernetes namespace for the deployment'
+        required: true
+        type: string
+      scheduler_release_name:
+        description: 'Helm release name for the scheduler (standalone GAIE chart). Also used as the hostname stem for GATEWAY_HOST: <release>-epp.<ns>.svc.cluster.local.'
+        required: true
+        type: string
+      scheduler_values_files:
+        description: 'Newline-separated list of values files passed to `helm install` as `-f <file>`, in order. Paths are relative to the llm-d/llm-d repo root.'
+        required: true
+        type: string
+      modelserver_kustomize_dir:
+        description: 'Path to the model server kustomize directory (default: guides/<guide_name>/modelserver/xpu/vllm)'
+        required: false
+        type: string
+        default: ''
+
+      # --- Versions ---
+      gaie_version:
+        description: 'Gateway API Inference Extension version — used for both the CRD apply and the scheduler chart version'
+        required: false
+        type: string
+        default: 'v1.5.0'
+
+      # --- Repository ---
+      llm_d_ref:
+        description: 'Git ref for llm-d/llm-d checkout (empty = falls back to github.ref, typically `main` for scheduled runs)'
+        required: false
+        type: string
+        default: ''
+
+      # --- Deployment configuration ---
+      image_override:
+        description: 'Override model server container image — must be a fully-qualified image reference (e.g. ghcr.io/llm-d/llm-d-xpu-dev:latest). Applied via `kustomize edit set image REPLACE_MODEL_SERVER_IMAGE=<ref>`.'
+        required: false
+        type: string
+        default: ''
+      pre_deploy_script:
+        description: 'Optional inline shell snippet run after checkout + prereqs but before `helm install` (e.g. `sed` patches to the scheduler values file). Executed from the repo root.'
+        required: false
+        type: string
+        default: ''
+      helm_post_renderer:
+        description: 'Optional `--post-renderer` path (relative to repo root) for `helm install`. Used by guides that apply kustomize patches to the standalone chart (e.g. precise-prefix-cache-aware UDS tokenizer).'
+        required: false
+        type: string
+        default: ''
+      helm_install_args:
+        description: 'Extra args passed to `helm install` after the values files (e.g. `--set foo=bar`).'
+        required: false
+        type: string
+        default: ''
+      install_monitoring:
+        description: 'Install prometheus-grafana monitoring stack (best-effort, non-fatal)'
+        required: false
+        type: boolean
+        default: true
+
+      # --- Test configuration ---
+      pod_wait_timeout:
+        description: 'Timeout for pods to become ready'
+        required: false
+        type: string
+        default: '10m'
+
+      # --- Cleanup ---
+      skip_cleanup:
+        description: 'Skip cleanup after tests (for debugging)'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  nightly-e2e:
+    runs-on: xpu
+    env:
+      GUIDE_NAME: ${{ inputs.guide_name }}
+      NAMESPACE: ${{ inputs.namespace }}
+      SCHEDULER_RELEASE_NAME: ${{ inputs.scheduler_release_name }}
+      GAIE_VERSION: ${{ inputs.gaie_version }}
+      MODELSERVER_KUSTOMIZE_DIR: ${{ inputs.modelserver_kustomize_dir || format('guides/{0}/modelserver/xpu/vllm', inputs.guide_name) }}
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - name: Checkout llm-d/llm-d
+        uses: actions/checkout@v6
+        with:
+          repository: llm-d/llm-d
+          ref: ${{ inputs.llm_d_ref || github.ref }}
+          persist-credentials: false
+
+      - name: Install prerequisites idempotently
+        shell: bash
+        run: |
+          ./helpers/client-setup/install-deps.sh | tee ~/install-deps.log
+
+      - name: Install Gateway API Inference Extension CRDs
+        shell: bash
+        run: |
+          kubectl apply -k "https://github.com/kubernetes-sigs/gateway-api-inference-extension/config/crd?ref=${GAIE_VERSION}"
+
+      - name: Install monitoring stack
+        if: inputs.install_monitoring
+        shell: bash
+        run: |
+          cd docs/monitoring
+          ./scripts/install-prometheus-grafana.sh || true
+
+      - name: Create namespace
+        shell: bash
+        run: |
+          kubectl create namespace "$NAMESPACE" || echo "Namespace already exists"
+
+      - name: Create llm-d-hf-token secret
+        shell: bash
+        run: |
+          kubectl create secret generic llm-d-hf-token \
+            --from-literal="HF_TOKEN=$HF_TOKEN" \
+            --namespace "$NAMESPACE" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Run pre-deploy script
+        if: inputs.pre_deploy_script != ''
+        shell: bash
+        run: |
+          echo "Running pre-deploy script..."
+          ${{ inputs.pre_deploy_script }}
+
+      - name: Deploy scheduler via helm (standalone)
+        shell: bash
+        env:
+          SCHEDULER_VALUES_FILES: ${{ inputs.scheduler_values_files }}
+          HELM_POST_RENDERER: ${{ inputs.helm_post_renderer }}
+          HELM_INSTALL_ARGS: ${{ inputs.helm_install_args }}
+        run: |
+          VALUES_ARGS=""
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            VALUES_ARGS="${VALUES_ARGS} -f ${f}"
+          done <<< "$SCHEDULER_VALUES_FILES"
+
+          POST_RENDERER_ARG=""
+          if [ -n "$HELM_POST_RENDERER" ]; then
+            POST_RENDERER_ARG="--post-renderer ${HELM_POST_RENDERER}"
+          fi
+
+          echo "Installing scheduler (standalone chart) via helm..."
+          # shellcheck disable=SC2086
+          helm install "$SCHEDULER_RELEASE_NAME" \
+            oci://registry.k8s.io/gateway-api-inference-extension/charts/standalone \
+            ${VALUES_ARGS} \
+            ${POST_RENDERER_ARG} \
+            ${HELM_INSTALL_ARGS} \
+            -n "$NAMESPACE" \
+            --version "$GAIE_VERSION" \
+            | tee "$HOME/${GUIDE_NAME}-xpu-deployment.log"
+
+      - name: Deploy model server via kustomize
+        shell: bash
+        env:
+          IMAGE_OVERRIDE: ${{ inputs.image_override }}
+        run: |
+          cd "$MODELSERVER_KUSTOMIZE_DIR"
+
+          if [ -n "$IMAGE_OVERRIDE" ]; then
+            echo "Overriding model server image to $IMAGE_OVERRIDE"
+            kustomize edit set image "REPLACE_MODEL_SERVER_IMAGE=${IMAGE_OVERRIDE}"
+          fi
+
+          echo "Building and applying kustomize manifests from $MODELSERVER_KUSTOMIZE_DIR..."
+          kubectl apply -n "$NAMESPACE" -k ./ \
+            | tee -a "$HOME/${GUIDE_NAME}-xpu-deployment.log"
+
+      - name: Wait for all pods to be ready
+        id: wait_pods
+        env:
+          POD_WAIT_TIMEOUT: ${{ inputs.pod_wait_timeout }}
+        shell: bash
+        run: |
+          echo "Waiting for all pods in $NAMESPACE to be ready (timeout: $POD_WAIT_TIMEOUT)..."
+          if kubectl wait pod \
+            --for=condition=Ready \
+            --all \
+            -n "$NAMESPACE" \
+            --timeout="$POD_WAIT_TIMEOUT"; then
+            echo "All pods are ready."
+            kubectl get pods -n "$NAMESPACE"
+          else
+            echo "::error::Pods in $NAMESPACE did not become ready within $POD_WAIT_TIMEOUT"
+            echo "=== Pod Status ==="
+            kubectl get pods -n "$NAMESPACE" -o wide || true
+            echo "=== Pod Descriptions ==="
+            kubectl describe pods -n "$NAMESPACE" || true
+            exit 1
+          fi
+
+      - name: Show deployment status
+        if: always()
+        shell: bash
+        run: |
+          echo "=== Deployments ==="
+          kubectl get deployments -n "$NAMESPACE" || true
+          echo ""
+          echo "=== Pods ==="
+          kubectl get pods -n "$NAMESPACE" -o wide || true
+          echo ""
+          echo "=== Services ==="
+          kubectl get svc -n "$NAMESPACE" || true
+          echo ""
+          echo "=== Helm releases ==="
+          helm list -n "$NAMESPACE" || true
+          echo ""
+          echo "=== Inference Pools ==="
+          kubectl get inferencepools -n "$NAMESPACE" || true
+          echo ""
+          echo "=== ConfigMaps ==="
+          kubectl get cm -n "$NAMESPACE" || true
+
+      - name: Verify installation and run inference tests
+        if: steps.wait_pods.outcome == 'success'
+        shell: bash
+        env:
+          # Standalone mode: no Gateway resource exists; point e2e-validate.sh
+          # at the EPP service's ClusterIP DNS name directly.
+          GATEWAY_HOST: ${{ inputs.scheduler_release_name }}-epp.${{ inputs.namespace }}.svc.cluster.local
+        run: |
+          cd .github/scripts/e2e
+          ./e2e-validate.sh -n "$NAMESPACE" -v
+
+      - name: Collect pod logs
+        if: always()
+        shell: bash
+        run: |
+          LOG_DIR="pod-logs-${GUIDE_NAME}-xpu"
+          mkdir -p "$LOG_DIR"
+          cd "$LOG_DIR"
+
+          echo "Collecting logs from all pods in $NAMESPACE..."
+          for pod in $(kubectl get pods -n "$NAMESPACE" --no-headers -o custom-columns=":metadata.name" 2>/dev/null); do
+            kubectl logs --all-containers=true -n "$NAMESPACE" "$pod" > "${pod}.log" 2>&1 || true
+            kubectl describe pod -n "$NAMESPACE" "$pod" > "${pod}-describe.log" 2>&1 || true
+          done
+
+          echo "Collecting events..."
+          kubectl get events -n "$NAMESPACE" --sort-by='.lastTimestamp' > events.log 2>&1 || true
+
+          mv "$HOME/${GUIDE_NAME}-xpu-deployment.log" . 2>/dev/null || true
+          mv "$HOME/install-deps.log" . 2>/dev/null || true
+
+          echo "Log collection complete."
+          ls -la
+
+      - name: Upload pod logs as artifact
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: llmd-pod-logs-${{ inputs.guide_name }}-xpu
+          path: pod-logs-${{ inputs.guide_name }}-xpu
+          retention-days: 7
+
+      - name: Cleanup deployment
+        if: always() && inputs.skip_cleanup == false
+        shell: bash
+        run: |
+          echo "Cleaning up scheduler helm release..."
+          helm uninstall "$SCHEDULER_RELEASE_NAME" -n "$NAMESPACE" || true
+
+          echo "Cleaning up model server kustomize manifests..."
+          if [ -d "$MODELSERVER_KUSTOMIZE_DIR" ]; then
+            kustomize build "$MODELSERVER_KUSTOMIZE_DIR" \
+              | kubectl delete -n "$NAMESPACE" -f - || true
+          fi
+
+          echo "Deleting namespace $NAMESPACE..."
+          kubectl delete ns "$NAMESPACE" --ignore-not-found || true
