@@ -233,6 +233,9 @@ jobs:
             sudo apt-get update && sudo apt-get install -y jq
           fi
 
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
       - name: Verify cluster access
         run: |
           echo "Verifying CKS cluster access..."
