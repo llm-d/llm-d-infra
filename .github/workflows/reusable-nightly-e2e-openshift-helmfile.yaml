@@ -95,6 +95,11 @@ on:
         required: false
         type: string
         default: 'httproute.yaml'
+      gaie_version:
+        description: 'The version of Gateway API Inference Extension to use'
+        required: false
+        type: string
+        default: '1.4.0'
       install_gateway_provider:
         description: 'Install gateway provider prerequisites'
         required: false
@@ -177,6 +182,7 @@ jobs:
       HELMFILE_ENV: ${{ inputs.helmfile_env }}
       GATEWAY_TYPE: ${{ inputs.gateway_type }}
       ACCELERATOR_TYPE: ${{ inputs.accelerator_type }}
+      GAIE_VERSION: ${{ inputs.gaie_version }}
       # WVA-specific env vars (only used when deploy_wva is true)
       MODEL_ID: ${{ inputs.model_id }}
       WVA_IMAGE_TAG: ${{ inputs.wva_image_tag }}
@@ -852,6 +858,7 @@ jobs:
           echo "| Helmfile Env | $HELMFILE_ENV |" >> $GITHUB_STEP_SUMMARY
           echo "| Gateway Type | $GATEWAY_TYPE |" >> $GITHUB_STEP_SUMMARY
           echo "| Accelerator | $ACCELERATOR_TYPE |" >> $GITHUB_STEP_SUMMARY
+          echo "| GAIE Version | $GAIE_VERSION |" >> $GITHUB_STEP_SUMMARY
           echo "| llm-d Ref | ${{ inputs.llm_d_ref }} |" >> $GITHUB_STEP_SUMMARY
           if [ "${{ inputs.deploy_wva }}" = "true" ]; then
             echo "| Caller Repo | ${{ inputs.caller_repo }} |" >> $GITHUB_STEP_SUMMARY

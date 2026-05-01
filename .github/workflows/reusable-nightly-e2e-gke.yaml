@@ -112,6 +112,11 @@ on:
         required: false
         type: string
         default: ''
+      gaie_version:
+        description: 'The version of Gateway API Inference Extension to use'
+        required: false
+        type: string
+        default: '1.4.0'
       gateway_host:
         description: 'Override GATEWAY_HOST for e2e-validate.sh (e.g. svc-name:port). If empty, auto-discovers from Gateway resource.'
         required: false
@@ -167,6 +172,7 @@ jobs:
       HELMFILE_ENV: ${{ inputs.helmfile_env }}
       GATEWAY_TYPE: ${{ inputs.gateway_type }}
       ACCELERATOR_TYPE: ${{ inputs.accelerator_type }}
+      GAIE_VERSION: ${{ inputs.gaie_version }}
       GCP_PROJECT_ID: ${{ inputs.gcp_project_id }}
       GKE_CLUSTER_NAME: ${{ inputs.gke_cluster_name }}
       GKE_CLUSTER_ZONE: ${{ inputs.gke_cluster_zone }}
@@ -612,6 +618,7 @@ jobs:
           echo "| Helmfile Env | $HELMFILE_ENV |" >> $GITHUB_STEP_SUMMARY
           echo "| Gateway Type | $GATEWAY_TYPE |" >> $GITHUB_STEP_SUMMARY
           echo "| Accelerator | $ACCELERATOR_TYPE |" >> $GITHUB_STEP_SUMMARY
+          echo "| GAIE Version | $GAIE_VERSION |" >> $GITHUB_STEP_SUMMARY
           echo "| llm-d Ref | ${{ inputs.llm_d_ref }} |" >> $GITHUB_STEP_SUMMARY
 
       - name: Collect pod logs
