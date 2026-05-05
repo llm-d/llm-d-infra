@@ -6,7 +6,7 @@
 #   on: pull_request
 #   jobs:
 #     remove-lgtm:
-#       uses: llm-d/llm-d-infra/.github/workflows/reusable-prow-remove-lgtm.yml@main
+#       uses: llm-d/llm-d-infra/.github/workflows/reusable-prow-remove-lgtm.yaml@main
 
 name: Prow Remove LGTM (Reusable)
 

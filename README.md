@@ -10,50 +10,50 @@ This repo provides [reusable GitHub Actions workflows](https://docs.github.com/e
 
 | Workflow | Purpose | Caller Trigger |
 |----------|---------|----------------|
-| `reusable-prow-commands.yml` | Prow-style commands (/lgtm, /approve, /assign, etc.) | `issue_comment` |
-| `reusable-prow-automerge.yml` | Auto-merge PRs with `lgtm` label | `schedule` (every 5 min) |
-| `reusable-prow-remove-lgtm.yml` | Remove `lgtm` label on PR push | `pull_request` |
-| `reusable-stale.yml` | Mark stale issues/PRs, then rotten, then close | `schedule` (daily) |
-| `reusable-unstale.yml` | Remove stale/rotten labels on activity | `issues` + `issue_comment` |
-| `reusable-signed-commits.yml` | Enforce signed/DCO commits | `pull_request_target` |
-| `reusable-non-main-gatekeeper.yml` | Block PRs to non-main branches | `pull_request` |
+| `reusable-prow-commands.yaml` | Prow-style commands (/lgtm, /approve, /assign, etc.) | `issue_comment` |
+| `reusable-prow-automerge.yaml` | Auto-merge PRs with `lgtm` label | `schedule` (every 5 min) |
+| `reusable-prow-remove-lgtm.yaml` | Remove `lgtm` label on PR push | `pull_request` |
+| `reusable-stale.yaml` | Mark stale issues/PRs, then rotten, then close | `schedule` (daily) |
+| `reusable-unstale.yaml` | Remove stale/rotten labels on activity | `issues` + `issue_comment` |
+| `reusable-signed-commits.yaml` | Enforce signed/DCO commits | `pull_request_target` |
+| `reusable-non-main-gatekeeper.yaml` | Block PRs to non-main branches | `pull_request` |
 
 ### Usage
 
 Create a thin caller workflow in your repo's `.github/workflows/` directory. Each caller is typically 8-12 lines:
 
 ```yaml
-# .github/workflows/prow-github.yml
+# .github/workflows/prow-github.yaml
 name: Prow Commands
 on:
   issue_comment:
     types: [created]
 jobs:
   prow:
-    uses: llm-d/llm-d-infra/.github/workflows/reusable-prow-commands.yml@main
+    uses: llm-d/llm-d-infra/.github/workflows/reusable-prow-commands.yaml@main
     permissions:
       issues: write
       pull-requests: write
 ```
 
 ```yaml
-# .github/workflows/prow-pr-automerge.yml
+# .github/workflows/prow-pr-automerge.yaml
 name: Prow Auto-merge
 on:
   schedule:
     - cron: "*/5 * * * *"
 jobs:
   auto-merge:
-    uses: llm-d/llm-d-infra/.github/workflows/reusable-prow-automerge.yml@main
+    uses: llm-d/llm-d-infra/.github/workflows/reusable-prow-automerge.yaml@main
 ```
 
 ```yaml
-# .github/workflows/prow-pr-remove-lgtm.yml
+# .github/workflows/prow-pr-remove-lgtm.yaml
 name: Prow Remove LGTM
 on: pull_request
 jobs:
   remove-lgtm:
-    uses: llm-d/llm-d-infra/.github/workflows/reusable-prow-remove-lgtm.yml@main
+    uses: llm-d/llm-d-infra/.github/workflows/reusable-prow-remove-lgtm.yaml@main
 ```
 
 ```yaml
@@ -64,7 +64,7 @@ on:
     - cron: '0 1 * * *'
 jobs:
   stale:
-    uses: llm-d/llm-d-infra/.github/workflows/reusable-stale.yml@main
+    uses: llm-d/llm-d-infra/.github/workflows/reusable-stale.yaml@main
     permissions:
       issues: write
       pull-requests: write
@@ -80,7 +80,7 @@ on:
     types: [created]
 jobs:
   unstale:
-    uses: llm-d/llm-d-infra/.github/workflows/reusable-unstale.yml@main
+    uses: llm-d/llm-d-infra/.github/workflows/reusable-unstale.yaml@main
     permissions:
       issues: write
 ```
@@ -91,21 +91,21 @@ name: Check Signed Commits
 on: pull_request_target
 jobs:
   signed-commits:
-    uses: llm-d/llm-d-infra/.github/workflows/reusable-signed-commits.yml@main
+    uses: llm-d/llm-d-infra/.github/workflows/reusable-signed-commits.yaml@main
     permissions:
       contents: read
       pull-requests: write
 ```
 
 ```yaml
-# .github/workflows/non-main-gatekeeper.yml
+# .github/workflows/non-main-gatekeeper.yaml
 name: Non-Main Gatekeeper
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
 jobs:
   gatekeeper:
-    uses: llm-d/llm-d-infra/.github/workflows/reusable-non-main-gatekeeper.yml@main
+    uses: llm-d/llm-d-infra/.github/workflows/reusable-non-main-gatekeeper.yaml@main
 ```
 
 ### Customization
@@ -115,7 +115,7 @@ Most workflows accept optional inputs. See each workflow file for available inpu
 ```yaml
 jobs:
   stale:
-    uses: llm-d/llm-d-infra/.github/workflows/reusable-stale.yml@main
+    uses: llm-d/llm-d-infra/.github/workflows/reusable-stale.yaml@main
     with:
       days-before-issue-stale: 60  # override default of 90
 ```
@@ -139,4 +139,4 @@ To migrate from copy-pasted workflows to shared reusable ones:
 
 ## Sync Workflow
 
-The `sync-caller-workflows.yml` checks which consuming repos still use local copies vs. shared reusable workflows. It runs when reusable workflows change and generates an adoption report in the workflow summary.
+The `sync-caller-workflows.yaml` checks which consuming repos still use local copies vs. shared reusable workflows. It runs when reusable workflows change and generates an adoption report in the workflow summary.

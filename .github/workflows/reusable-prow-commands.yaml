@@ -8,7 +8,7 @@
 #       types: [created]
 #   jobs:
 #     prow:
-#       uses: llm-d/llm-d-infra/.github/workflows/reusable-prow-commands.yml@main
+#       uses: llm-d/llm-d-infra/.github/workflows/reusable-prow-commands.yaml@main
 #       permissions:
 #         issues: write
 #         pull-requests: write

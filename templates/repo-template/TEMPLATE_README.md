@@ -45,7 +45,7 @@ Priority adoption order:
 1. **Governance** (if missing): `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `PR_SIGNOFF.md`
 2. **Linting** (if outdated): `.golangci.yml`, `.pre-commit-config.yaml`, `.hadolint.yaml`, `_typos.toml`
 3. **CI workflows** (if missing): Start with `ci-signed-commits.yaml`, `check-typos.yaml`, then `ci-pr-checks.yaml`
-4. **Prow integration**: `prow-github.yml`, `prow-pr-automerge.yml`, `prow-pr-remove-lgtm.yml`
+4. **Prow integration**: `prow-github.yaml`, `prow-pr-automerge.yaml`, `prow-pr-remove-lgtm.yaml`
 5. **Release pipeline**: `ci-release.yaml` + `.github/actions/`
 
 ## What's Included
@@ -79,12 +79,12 @@ Priority adoption order:
 | `ci-release.yaml` | Tag-triggered: multi-arch build, push to ghcr.io, Trivy scan |
 | `ci-signed-commits.yaml` | DCO enforcement (calls llm-d-infra reusable workflow) |
 | `check-typos.yaml` | Spell checking (calls llm-d-infra reusable workflow) |
-| `md-link-check.yml` | Markdown link validation |
+| `md-link-check.yaml` | Markdown link validation |
 | `stale.yaml` / `unstale.yaml` | Issue/PR staleness management |
-| `prow-github.yml` | Prow commands (`/lgtm`, `/approve`, `/hold`) |
-| `prow-pr-automerge.yml` | Auto-merge when Prow labels are set |
-| `prow-pr-remove-lgtm.yml` | Remove lgtm on new pushes |
-| `non-main-gatekeeper.yml` | Prevent PRs to non-main branches |
+| `prow-github.yaml` | Prow commands (`/lgtm`, `/approve`, `/hold`) |
+| `prow-pr-automerge.yaml` | Auto-merge when Prow labels are set |
+| `prow-pr-remove-lgtm.yaml` | Remove lgtm on new pushes |
+| `non-main-gatekeeper.yaml` | Prevent PRs to non-main branches |
 
 ### Build
 | File | Purpose |
