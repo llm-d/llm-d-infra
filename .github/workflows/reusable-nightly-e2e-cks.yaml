@@ -172,6 +172,18 @@ on:
         type: boolean
         default: false
 
+      # --- PR comment-back (optional) ---
+      pr_number:
+        description: 'PR number to comment on with test results (empty = skip)'
+        required: false
+        type: string
+        default: ''
+      pr_repo:
+        description: 'Repository (owner/repo) for the PR comment (default: llm-d/llm-d)'
+        required: false
+        type: string
+        default: 'llm-d/llm-d'
+
 jobs:
   nightly-e2e:
     runs-on: [self-hosted, linux, waldorf]
@@ -822,6 +834,45 @@ jobs:
             echo "| Model | $MODEL_ID |" >> $GITHUB_STEP_SUMMARY
             echo "| Test Target | ${{ inputs.test_target }} |" >> $GITHUB_STEP_SUMMARY
           fi
+
+      - name: Comment on PR
+        if: always() && inputs.pr_number != ''
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ secrets.WORKFLOW_TOKEN || github.token }}
+          script: |
+            const status = '${{ job.status }}';
+            const passed = status === 'success';
+            const icon = passed ? ':white_check_mark:' : ':x:';
+            const label = passed ? 'Passed' : 'Failed';
+            const guideName = '${{ inputs.guide_name }}';
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const sha = '${{ github.sha }}'.substring(0, 7);
+
+            const [prOwner, prRepo] = '${{ inputs.pr_repo }}'.split('/');
+            const prNumber = parseInt('${{ inputs.pr_number }}', 10);
+
+            const body = [
+              `### Nightly E2E Result: \`${guideName}\` (CKS)`,
+              '',
+              '| | |',
+              '|---|---|',
+              `| Result | ${icon} **${label}** |`,
+              `| Guide | \`${guideName}\` |`,
+              `| Run | [View logs](${runUrl}) |`,
+              `| Ref | \`${sha}\` |`,
+            ].join('\n');
+
+            try {
+              await github.rest.issues.createComment({
+                owner: prOwner,
+                repo: prRepo,
+                issue_number: prNumber,
+                body,
+              });
+            } catch (err) {
+              core.warning(`Failed to comment on PR #${prNumber}: ${err.message}`);
+            }
 
       - name: Collect pod logs
         if: always()
