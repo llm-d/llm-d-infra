@@ -1,22 +1,7 @@
 name: Reusable - Nightly E2E XPU
 
-# Reusable workflow for nightly e2e testing of kustomize-based llm-d guides on
-# the self-hosted `xpu` runner (Intel GPU host with a local Kubernetes cluster).
-# Modeled on the kustomize-migrated XPU workflows in llm-d/llm-d (see
-# llm-d/llm-d#1251, #1297, #1304). The runner is itself the k8s control-plane,
-# so kubectl works against the local cluster once install-deps.sh has run —
-# no cloud auth.
+# Reusable workflow for nightly e2e testing of kustomize-based llm-d guides on XPU
 #
-# Per-guide layout this reusable assumes (as of the 2026-04-29..05-01
-# migration):
-#   - Scheduler: `helm install` of the Gateway API Inference Extension
-#     standalone chart, fed by one or more values files under guides/recipes/
-#     and the guide's own scheduler/<guide>.values.yaml. No HTTPRoute.
-#   - Model server: `kubectl apply -k` against
-#     guides/<guide_name>/modelserver/xpu/vllm/. Image overrides use
-#     `kustomize edit set image REPLACE_MODEL_SERVER_IMAGE=<ref>`.
-#   - Validation: e2e-validate.sh with GATEWAY_HOST pointing at the EPP
-#     service ClusterIP DNS (standalone mode has no Gateway resource).
 #
 # Usage from a caller workflow (in llm-d/llm-d):
 #
