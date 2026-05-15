@@ -13,7 +13,7 @@ name: Reusable - Nightly E2E GKE TPU (Helmfile)
 #         guide_name: optimized-baseline
 #         namespace: llm-d-nightly-tpu-baseline
 #         helmfile_env: gke_tpu
-#         tpu_type: v5e-8
+#         tpu_type: v6e-8
 #       secrets: inherit
 #
 #     nightly-tpu-pd:
@@ -22,7 +22,7 @@ name: Reusable - Nightly E2E GKE TPU (Helmfile)
 #         guide_name: pd-disaggregation
 #         namespace: llm-d-nightly-tpu-pd
 #         helmfile_env: gke_tpu
-#         tpu_type: v5e-8
+#         tpu_type: v6e-8
 #         required_tpu_chips: 16
 #       secrets: inherit
 #
@@ -32,7 +32,7 @@ name: Reusable - Nightly E2E GKE TPU (Helmfile)
 #         guide_name: tiered-prefix-cache
 #         namespace: llm-d-nightly-tpu-tpc
 #         helmfile_env: gke_tpu
-#         tpu_type: v5e-8
+#         tpu_type: v6e-8
 #       secrets: inherit
 
 on:
@@ -80,7 +80,7 @@ on:
         description: 'GKE cluster name'
         required: false
         type: string
-        default: 'llm-d-e2e-tpu'
+        default: 'llm-d-e2e-us-east5'
       gke_cluster_zone:
         description: 'GKE cluster zone'
         required: false
@@ -89,10 +89,10 @@ on:
 
       # --- TPU requirements ---
       tpu_type:
-        description: 'TPU chip type (e.g. v5e-8, v4-8, v5p-8)'
+        description: 'TPU chip type (e.g. v6e-8, v4-8, v5p-8)'
         required: false
         type: string
-        default: 'v5e-8'
+        default: 'v6e-8'
       required_tpu_chips:
         description: 'Minimum TPU chip count required (0 for simulated)'
         required: false
