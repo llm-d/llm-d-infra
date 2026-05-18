@@ -89,25 +89,31 @@ on:
 
       # --- TPU requirements ---
       tpu_type:
-        description: 'TPU chip type (e.g. v6e-8, v4-8, v5p-8)'
+        description: 'GKE TPU accelerator type (e.g. tpu-v6e-slice, tpu7x)'
         required: false
         type: string
-        default: 'v6e-8'
-      required_tpu_chips:
-        description: 'Minimum TPU chip count required (0 for simulated)'
+        default: 'tpu-v6e-slice'
+      tpu_topology:
+        description: 'GKE TPU topology (e.g. 2x4, 2x2x1)'
         required: false
-        type: number
-        default: 8
-      recommended_tpu_chips:
-        description: 'Recommended TPU chip count for scale-up headroom'
+        type: string
+        default: '2x4'
+      tpu_chips:
+        description: 'Total TPU chips to request (0 for simulated)'
         required: false
-        type: number
-        default: 16
+        type: string
+        default: '0'
       tpu_wait_timeout:
         description: 'Minutes to wait for TPU chips to become available (0 = no wait, fail immediately)'
         required: false
-        type: number
-        default: 0
+        type: string
+        default: '0'
+      tpu_nodepool:
+        description: 'Target GKE TPU node pool name (empty = do not override)'
+        required: false
+        type: string
+        default: ''
+
 
       # --- Model & accelerator ---
       model_id:
@@ -184,20 +190,34 @@ on:
         type: string
         default: 'llm-d/llm-d'
 
-jobs:
+  skip-v7-warning:
+    name: Skip TPU v7 Run
+    runs-on: ubuntu-latest
+    if: inputs.tpu_type == 'tpu7x'
+    steps:
+      - name: Print skip message
+        run: |
+          echo "::warning::TPU v7 capacity is currently not available. Skipping e2e smoke run."
+          echo "## TPU v7 Skipped" >> $GITHUB_STEP_SUMMARY
+          echo "TPU v7 capacity is currently not available. This run has been skipped." >> $GITHUB_STEP_SUMMARY
+
   nightly-e2e-tpu:
     runs-on: ubuntu-latest
+    if: inputs.tpu_type != 'tpu7x'
     env:
       GUIDE_NAME: ${{ inputs.guide_name }}
       GUIDE_PATH: ${{ inputs.guide_path || format('guides/{0}', inputs.guide_name) }}
       NAMESPACE: ${{ inputs.namespace }}
       HELMFILE_ENV: ${{ inputs.helmfile_env }}
       GATEWAY_TYPE: ${{ inputs.gateway_type }}
-      TPU_TYPE: ${{ inputs.tpu_type }}
+      TPU_TYPE: ${{ inputs.tpu_type || 'tpu-v6e-slice' }}
+      TPU_TOPOLOGY: ${{ inputs.tpu_topology || '2x4' }}
+      TPU_CHIPS: ${{ inputs.tpu_chips || '0' }}
       GCP_PROJECT_ID: ${{ inputs.gcp_project_id }}
       GKE_CLUSTER_NAME: ${{ inputs.gke_cluster_name }}
       GKE_CLUSTER_ZONE: ${{ inputs.gke_cluster_zone }}
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      TPU_NODEPOOL: ${{ inputs.tpu_nodepool }}
     steps:
       - name: Checkout llm-d/llm-d
         uses: actions/checkout@v6
@@ -235,108 +255,82 @@ jobs:
 
       - name: Verify cluster access
         run: |
-          echo "Verifying GKE TPU cluster access..."
+          echo "Verifying GKE cluster access..."
           kubectl cluster-info
-          kubectl get nodes -L cloud.google.com/gke-tpu-accelerator,cloud.google.com/gke-tpu-topology
 
-      - name: Cordon unhealthy TPU nodes
+      - name: Request TPUs (DWS)
+        if: inputs.tpu_chips > 0
         run: |
-          echo "Checking for unhealthy TPU nodes to cordon..."
-          CORDONED_NODES=""
-          for node in $(kubectl get nodes -o json | jq -r --arg tpu_type "$TPU_TYPE" '
-            .items[] | select(
-              ((.status.allocatable["google.com/tpu"] // "0" | tonumber) > 0) and
-              (.status.conditions[] | select(.type == "Ready") | .status != "True")
-            ) | .metadata.name'); do
-            echo "::warning::Cordoning unhealthy TPU node: $node"
-            kubectl cordon "$node" 2>/dev/null || true
-            CORDONED_NODES="$CORDONED_NODES $node"
-          done
-          echo "NIGHTLY_CORDONED_NODES=$CORDONED_NODES" >> $GITHUB_ENV
-          if [ -z "$CORDONED_NODES" ]; then
-            echo "All TPU nodes are healthy"
-          else
-            echo "Cordoned nodes:$CORDONED_NODES"
+          CHIPS_TO_REQUEST="${{ inputs.tpu_chips }}"
+
+          kubectl create namespace "$NAMESPACE" || echo "Namespace already exists"
+
+          ACCELERATOR="$TPU_TYPE"
+          TOPOLOGY="$TPU_TOPOLOGY"
+
+          CHIPS_PER_VM=8
+          if [[ "$ACCELERATOR" == "tpu7x" ]]; then
+            CHIPS_PER_VM=4
           fi
 
-      - name: Check TPU availability
-        id: tpu-check
-        env:
-          REQUIRED_TPUS: ${{ inputs.required_tpu_chips }}
-          RECOMMENDED_TPUS: ${{ inputs.recommended_tpu_chips }}
-          TPU_WAIT_TIMEOUT: ${{ inputs.tpu_wait_timeout }}
-        run: |
-          echo "Checking TPU availability for nightly e2e ($GUIDE_NAME, type: $TPU_TYPE)..."
+          VMS=$(( CHIPS_TO_REQUEST / CHIPS_PER_VM ))
+          if [ "$VMS" -lt 1 ]; then
+            VMS=1
+          fi
 
-          check_tpus() {
-            TOTAL_TPUS=$(kubectl get nodes -o json | \
-              jq '[.items[].status.allocatable["google.com/tpu"] // "0" | tonumber] | add // 0')
-            ALLOCATED_TPUS=$(kubectl get pods --all-namespaces -o json | \
-              jq '[.items[] | select(.status.phase == "Running" or .status.phase == "Pending") | .spec.containers[]?.resources.requests["google.com/tpu"] // "0" | tonumber] | add // 0')
-            AVAILABLE_TPUS=$((TOTAL_TPUS - ALLOCATED_TPUS))
-          }
+          echo "Dynamic TPU request parameters calculated:"
+          echo "  CHIPS_TO_REQUEST: $CHIPS_TO_REQUEST"
+          echo "  ACCELERATOR: $ACCELERATOR"
+          echo "  TOPOLOGY: $TOPOLOGY"
+          echo "  CHIPS_PER_VM: $CHIPS_PER_VM"
+          echo "  VMS: $VMS"
 
-          check_tpus
+          cat <<EOF | kubectl apply -n "$NAMESPACE" -f -
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: tpu-request-job
+          spec:
+            parallelism: $VMS
+            completions: $VMS
+            template:
+              spec:
+                nodeSelector:
+                  cloud.google.com/gke-flex-start: "true"
+                  cloud.google.com/gke-tpu-accelerator: $ACCELERATOR
+                  cloud.google.com/gke-tpu-topology: "$TOPOLOGY"
+                containers:
+                - name: tpu-container
+                  image: gcr.io/k8s-staging-perf-tests/sleep:latest
+                  args: ["3600s"]
+                  resources:
+                    requests:
+                      google.com/tpu: "$CHIPS_PER_VM"
+                    limits:
+                      google.com/tpu: "$CHIPS_PER_VM"
+                restartPolicy: OnFailure
+          EOF
 
-          NODE_COUNT=$(kubectl get nodes --no-headers | wc -l | tr -d ' ')
-          TPU_NODE_COUNT=$(kubectl get nodes -o json | \
-            jq '[.items[] | select((.status.allocatable["google.com/tpu"] // "0" | tonumber) > 0)] | length')
+          kubectl wait pod \
+            --for=condition=Ready \
+            -l job-name=tpu-request-job \
+            -n "$NAMESPACE" \
+            --timeout=45m
 
-          echo "total_tpus=$TOTAL_TPUS" >> $GITHUB_OUTPUT
-          echo "allocated_tpus=$ALLOCATED_TPUS" >> $GITHUB_OUTPUT
-          echo "available_tpus=$AVAILABLE_TPUS" >> $GITHUB_OUTPUT
+          # Release the chips so test can use them
+          kubectl delete job tpu-request-job -n "$NAMESPACE"
+
+          # Export topology and accelerator so subsequent steps (like scenario overrides) can read them
+          echo "TPU_ACCELERATOR=$ACCELERATOR" >> $GITHUB_ENV
+          echo "TPU_TOPOLOGY=$TOPOLOGY" >> $GITHUB_ENV
 
           echo "## TPU Status — Nightly ($GUIDE_NAME on GKE TPU)" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Cluster | $GKE_CLUSTER_NAME ($GKE_CLUSTER_ZONE) |" >> $GITHUB_STEP_SUMMARY
           echo "| TPU Type | $TPU_TYPE |" >> $GITHUB_STEP_SUMMARY
-          echo "| Total cluster TPU chips | $TOTAL_TPUS |" >> $GITHUB_STEP_SUMMARY
-          echo "| Currently allocated | $ALLOCATED_TPUS |" >> $GITHUB_STEP_SUMMARY
-          echo "| Available | $AVAILABLE_TPUS |" >> $GITHUB_STEP_SUMMARY
-          echo "| Required (minimum) | $REQUIRED_TPUS |" >> $GITHUB_STEP_SUMMARY
-          echo "| Recommended (with scale-up) | $RECOMMENDED_TPUS |" >> $GITHUB_STEP_SUMMARY
-          echo "| Nodes | $NODE_COUNT ($TPU_NODE_COUNT with TPUs) |" >> $GITHUB_STEP_SUMMARY
-
-          if [ "$REQUIRED_TPUS" -eq 0 ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**No TPUs required** for this guide (simulated accelerators)" >> $GITHUB_STEP_SUMMARY
-          elif [ "$AVAILABLE_TPUS" -lt "$REQUIRED_TPUS" ]; then
-            if [ "${TPU_WAIT_TIMEOUT:-0}" -gt 0 ]; then
-              DEADLINE=$((SECONDS + TPU_WAIT_TIMEOUT * 60))
-              echo "::notice::Waiting up to ${TPU_WAIT_TIMEOUT}m for TPU chips (need $REQUIRED_TPUS, have $AVAILABLE_TPUS)..."
-              while [ $SECONDS -lt $DEADLINE ]; do
-                REMAINING=$(( (DEADLINE - SECONDS) / 60 ))
-                echo "[$(date +%H:%M:%S)] Waiting for TPUs... need $REQUIRED_TPUS, have $AVAILABLE_TPUS (${REMAINING}m remaining)"
-                sleep 120
-                check_tpus
-                if [ "$AVAILABLE_TPUS" -ge "$REQUIRED_TPUS" ]; then
-                  echo "[$(date +%H:%M:%S)] TPU chips now available: $AVAILABLE_TPUS free"
-                  echo "available_tpus=$AVAILABLE_TPUS" >> $GITHUB_OUTPUT
-                  echo "allocated_tpus=$ALLOCATED_TPUS" >> $GITHUB_OUTPUT
-                  break
-                fi
-              done
-            fi
-            if [ "$AVAILABLE_TPUS" -lt "$REQUIRED_TPUS" ]; then
-              WAIT_MSG=""
-              [ "${TPU_WAIT_TIMEOUT:-0}" -gt 0 ] && WAIT_MSG=" (after waiting ${TPU_WAIT_TIMEOUT}m)"
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "**Insufficient TPUs${WAIT_MSG}** — need $REQUIRED_TPUS but only $AVAILABLE_TPUS available." >> $GITHUB_STEP_SUMMARY
-              echo "::error::Insufficient TPU chips: need $REQUIRED_TPUS, have $AVAILABLE_TPUS available${WAIT_MSG}"
-              exit 1
-            else
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "**TPU chips available after waiting** — $AVAILABLE_TPUS chips free ($REQUIRED_TPUS required, $RECOMMENDED_TPUS recommended)" >> $GITHUB_STEP_SUMMARY
-            fi
-          elif [ "$AVAILABLE_TPUS" -lt "$RECOMMENDED_TPUS" ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Low TPU headroom** — $AVAILABLE_TPUS available (need $RECOMMENDED_TPUS for scale-up tests)." >> $GITHUB_STEP_SUMMARY
-            echo "::warning::Low TPU headroom: $AVAILABLE_TPUS available, $RECOMMENDED_TPUS recommended"
-          else
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**TPU chips available** — $AVAILABLE_TPUS chips free ($REQUIRED_TPUS required, $RECOMMENDED_TPUS recommended)" >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "| TPU Accelerator | $ACCELERATOR |" >> $GITHUB_STEP_SUMMARY
+          echo "| TPU Topology | $TOPOLOGY |" >> $GITHUB_STEP_SUMMARY
+          echo "| Requested Chips | $CHIPS_TO_REQUEST |" >> $GITHUB_STEP_SUMMARY
 
       - name: Clean up previous nightly resources
         run: |
@@ -705,14 +699,3 @@ jobs:
           fi
 
           echo "Nightly cleanup complete"
-
-      - name: Uncordon nodes cordoned by this run
-        if: always()
-        run: |
-          if [ -n "$NIGHTLY_CORDONED_NODES" ]; then
-            echo "Uncordoning nodes that were cordoned by this nightly run..."
-            for node in $NIGHTLY_CORDONED_NODES; do
-              echo "  Uncordoning $node"
-              kubectl uncordon "$node" 2>/dev/null || true
-            done
-          fi
