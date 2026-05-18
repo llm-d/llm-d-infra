@@ -161,9 +161,11 @@ jobs:
       - name: Run pre-deploy script
         if: inputs.pre_deploy_script != ''
         shell: bash
+        env:
+          PRE_DEPLOY_SCRIPT: ${{ inputs.pre_deploy_script }}
         run: |
           echo "Running pre-deploy script..."
-          ${{ inputs.pre_deploy_script }}
+          echo "$PRE_DEPLOY_SCRIPT" | bash
 
       - name: Deploy scheduler via helm (standalone)
         shell: bash
