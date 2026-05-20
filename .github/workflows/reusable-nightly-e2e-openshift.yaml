@@ -109,13 +109,6 @@ on:
         required: false
         type: string
         default: ''
-
-      # --- WVA integration (optional ) ---
-      wva_image_tag:
-        description: 'WVA controller image tag'
-        required: false
-        type: string
-        default: 'v0.5.0'
       test_target:
         description: 'Make target for Go tests (e.g. test-e2e-openshift) — replaces e2e-validate.sh when set'
         required: false
@@ -167,8 +160,6 @@ jobs:
       NAMESPACE: ${{ inputs.namespace }}
       HELMFILE_ENV: ${{ inputs.helmfile_env }}
       GATEWAY_TYPE: ${{ inputs.gateway_type }}
-      # WVA-specific env vars
-      WVA_IMAGE_TAG: ${{ inputs.wva_image_tag }}
     steps:
       - name: Checkout llm-d/llm-d
         uses: actions/checkout@v6
@@ -362,7 +353,7 @@ jobs:
           echo "Cleaning up previous nightly resources for $GUIDE_NAME..."
           echo "  NAMESPACE: $NAMESPACE"
 
-          # Build list of namespaces to clean (add WVA namespace if deploying WVA)
+          # Build list of namespaces to clean
           NAMESPACES="$NAMESPACE"
 
           for ns in $NAMESPACES; do
@@ -570,14 +561,12 @@ jobs:
           fi
           jq -n \
             --arg imageOverride "${IMAGE_OVERRIDE:-}" \
-            --arg wvaImageTag "${WVA_IMAGE_TAG:-}" \
             --arg guideName "$GUIDE_NAME" \
             --argjson llmdImages "$LLMD_IMAGES" \
             --argjson otherImages "$OTHER_IMAGES" \
             '{
               guideName: $guideName,
               imageOverride: (if $imageOverride != "" then $imageOverride else null end),
-              wvaImageTag: (if $wvaImageTag != "" then $wvaImageTag else null end),
               llmdImages: $llmdImages,
               otherImages: $otherImages
             }' > "$METADATA_FILE"
