@@ -109,11 +109,6 @@ on:
         required: false
         type: string
         default: ''
-      test_target:
-        description: 'Make target for Go tests (e.g. test-e2e-openshift) — replaces e2e-validate.sh when set'
-        required: false
-        type: string
-        default: ''
 
       # --- Test configuration ---
       e2e_validate_args:
@@ -353,45 +348,40 @@ jobs:
           echo "Cleaning up previous nightly resources for $GUIDE_NAME..."
           echo "  NAMESPACE: $NAMESPACE"
 
-          # Build list of namespaces to clean
-          NAMESPACES="$NAMESPACE"
+          if kubectl get namespace "$ns" &>/dev/null; then
+            echo "=== Cleaning up namespace: $ns ==="
 
-          for ns in $NAMESPACES; do
-            if kubectl get namespace "$ns" &>/dev/null; then
-              echo "=== Cleaning up namespace: $ns ==="
-
-              # Destroy helmfile releases if helmfile.yaml.gotmpl exists
-              if [ -f "$GUIDE_PATH/helmfile.yaml.gotmpl" ]; then
-                echo "  Destroying helmfile releases..."
-                cd "$GUIDE_PATH"
-                helmfile destroy -e "$HELMFILE_ENV" --namespace "$ns" --args --ignore-not-found 2>/dev/null || true
-                cd "$GITHUB_WORKSPACE"
-              fi
-
-              # Fallback: uninstall any remaining helm releases
-              for release in $(helm list -n "$ns" -q 2>/dev/null); do
-                echo "  Uninstalling helm release: $release"
-                helm uninstall "$release" -n "$ns" --ignore-not-found --wait --timeout 60s || true
-              done
-
-              # Delete HTTPRoutes and other resources
-              kubectl delete httproute --all -n "$ns" --ignore-not-found || true
-              kubectl delete gateway --all -n "$ns" --ignore-not-found || true
-
-              kubectl delete pods -n "$ns" --all --force --grace-period=0 --wait=false 2>/dev/null || true
-              echo "  Deleting namespace: $ns"
-              kubectl delete namespace "$ns" --ignore-not-found --timeout=120s || \
-                kubectl delete namespace "$ns" --force --grace-period=0 2>/dev/null || true
-              if kubectl get namespace "$ns" 2>/dev/null | grep -q Terminating; then
-                echo "Warning: namespace $ns still Terminating — clearing finalizers"
-                kubectl get namespace "$ns" -o json | \
-                  jq '.spec.finalizers = []' | \
-                  kubectl replace --raw "/api/v1/namespaces/$ns/finalize" -f - 2>/dev/null || true
-              fi
-            else
-              echo "Namespace $ns does not exist, skipping"
+            # Destroy helmfile releases if helmfile.yaml.gotmpl exists
+            if [ -f "$GUIDE_PATH/helmfile.yaml.gotmpl" ]; then
+              echo "  Destroying helmfile releases..."
+              cd "$GUIDE_PATH"
+              helmfile destroy -e "$HELMFILE_ENV" --namespace "$ns" --args --ignore-not-found 2>/dev/null || true
+              cd "$GITHUB_WORKSPACE"
             fi
-          done
+
+            # Fallback: uninstall any remaining helm releases
+            for release in $(helm list -n "$ns" -q 2>/dev/null); do
+              echo "  Uninstalling helm release: $release"
+              helm uninstall "$release" -n "$ns" --ignore-not-found --wait --timeout 60s || true
+            done
+
+            # Delete HTTPRoutes and other resources
+            kubectl delete httproute --all -n "$ns" --ignore-not-found || true
+            kubectl delete gateway --all -n "$ns" --ignore-not-found || true
+
+            kubectl delete pods -n "$ns" --all --force --grace-period=0 --wait=false 2>/dev/null || true
+            echo "  Deleting namespace: $ns"
+            kubectl delete namespace "$ns" --ignore-not-found --timeout=120s || \
+              kubectl delete namespace "$ns" --force --grace-period=0 2>/dev/null || true
+            if kubectl get namespace "$ns" 2>/dev/null | grep -q Terminating; then
+              echo "Warning: namespace $ns still Terminating — clearing finalizers"
+              kubectl get namespace "$ns" -o json | \
+                jq '.spec.finalizers = []' | \
+                kubectl replace --raw "/api/v1/namespaces/$ns/finalize" -f - 2>/dev/null || true
+            fi
+          else
+            echo "Namespace $ns does not exist, skipping"
+          fi
 
           echo "Pre-cleanup complete"
 
@@ -728,7 +718,7 @@ jobs:
           fi
 
           # Fallback: uninstall remaining helm releases in all namespaces
-          for ns in "$NAMESPACE" do
+          for ns in "$NAMESPACE"; do
             for release in $(helm list -n "$ns" -q 2>/dev/null); do
               echo "  Uninstalling release: $release in $ns"
               helm uninstall "$release" -n "$ns" --ignore-not-found --wait --timeout 60s || true
