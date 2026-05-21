@@ -169,6 +169,7 @@ on:
 
 jobs:
   nightly-e2e:
+    timeout-minutes: 90
     runs-on: [self-hosted, openshift, pok-prod]
     env:
       GUIDE_NAME: ${{ inputs.guide_name }}

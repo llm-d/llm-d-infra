@@ -171,6 +171,7 @@ on:
 
 jobs:
   nightly-e2e:
+    timeout-minutes: 90
     runs-on: ubuntu-latest
     env:
       GUIDE_NAME: ${{ inputs.guide_name }}
