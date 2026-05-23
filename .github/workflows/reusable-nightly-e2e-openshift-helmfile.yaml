@@ -278,7 +278,7 @@ jobs:
             TOTAL_GPUS=$(kubectl get nodes -o json | \
               jq '[.items[].status.allocatable["nvidia.com/gpu"] // "0" | tonumber] | add // 0')
             ALLOCATED_GPUS=$(kubectl get pods --all-namespaces -o json | \
-              jq '[.items[] | select(.status.phase == "Running" or .status.phase == "Pending") | .spec.containers[]?.resources.requests["nvidia.com/gpu"] // "0" | tonumber] | add // 0')
+              jq '[.items[] | select((.status.phase == "Running" or .status.phase == "Pending") and .metadata.deletionTimestamp == null) | .spec.containers[]?.resources.requests["nvidia.com/gpu"] // "0" | tonumber] | add // 0')
             AVAILABLE_GPUS=$((TOTAL_GPUS - ALLOCATED_GPUS))
           }
 
