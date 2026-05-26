@@ -17,7 +17,7 @@ on:
         description: 'Cluster provider targeted ("ocp","gke","cks")'
         required: false
         type: 'string'
-        default: 'kind-sim'
+        default: 'kind'
       cluster_namespace:
         description: 'Cluster namespace'
         required: false
@@ -81,6 +81,9 @@ jobs:
     name: Ensure Nightly Build  Image
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      conditional_runs_on: ${{ steps.set_runs_on.outputs.runners }}
+
     steps:
       - name: Install system dependencies
         run: |
@@ -106,19 +109,31 @@ jobs:
           done
         shell: bash
 
+      - name: set runs-on variable based on cluster provider
+        id: set_runs_on
+        run: |
+          if [[ ${{ inputs.cluster_provider }} == "ocp" ]]; then
+            JSON_LIST='["self-hosted", "openshift", "pok-prod"]'
+          else
+            JSON_LIST='["ubuntu-latest"]'
+          fi
+          echo "runners=$JSON_LIST" >> "$GITHUB_OUTPUT"
+
   benchmark:
     name: Benchmark
-    runs-on: ubuntu-latest
+    if: inputs.cluster_provider == 'ocp'
+#    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(needs.ensure-nightly-build-image.outputs.conditional_runs_on) }}
 #    container:
 #      image: ghcr.io/llm-d/llm-d-benchmark:nightly
     needs: [ensure-nightly-build-image]
     timeout-minutes: 240
 
     env:
-      LLMDBENCH_CICD_NS: ${{ inputs.cluster_namespace || 'cicd' }}
+      LLMDBENCH_CICD_NS: ${{ inputs.cluster_namespace || 'llmdbenchcicd' }}
       LLMDBENCH_CICD_R: ${{ inputs.helm_release || 'standalone' }}
-      LLMDBENCH_CICD_SCENARIO_DIR: ${{ inputs.scenario_dir || 'kind' }}
-      LLMDBENCH_CICD_TARGET: ${{ inputs.cluster_provider || 'llmdbenchcicd' }}
+      LLMDBENCH_CICD_SCENARIO_DIR: ${{ inputs.scenario_dir || 'cicd' }}
+      LLMDBENCH_CICD_TARGET: ${{ inputs.cluster_provider || 'kind' }}
       LLMDBENCH_CICD_METHOD: ${{ inputs.standup_method || 'lmdbenchcicdr' }}
       LLMDBENCH_WORKSPACE: ${{ inputs.workspace_dir || '/tmp/llmdbenchcicd' }}
       LLMDBENCH_HF_TOKEN: ${{ secrets.LLMDBENCH_HF_TOKEN }}
@@ -181,7 +196,7 @@ jobs:
         shell: bash
 
       - name: Install oc (optional on install.sh)
-        if: inputs.cluster_provider != 'ocp'
+        if: inputs.cluster_provider == 'ocp'
         run: |
           # Install oc (OpenShift CLI) — optional on install.sh
           if ! command -v oc &>/dev/null; then
@@ -205,7 +220,7 @@ jobs:
       - name: Install llmdbenchmark
         run: |
           ./install.sh -y 2>&1
-          cp util/debug_info_on_failure.sh /usr/local/bin
+          sudo cp util/debug_info_on_failure.sh /usr/local/bin
         shell: bash
 
       - name: Set up extra command line parameters
