@@ -13,9 +13,8 @@ name: Reusable - Nightly E2E XPU
 #         namespace: llm-d-xpu-is
 #         scheduler_release_name: optimized-baseline
 #         scheduler_values_files: |
-#           guides/recipes/scheduler/base.values.yaml
-#           guides/recipes/scheduler/features/monitoring.values.yaml
-#           guides/optimized-baseline/scheduler/optimized-baseline.values.yaml
+#           guides/recipes/router/base.values.yaml
+#           guides/optimized-baseline/router/optimized-baseline.values.yaml
 #       secrets: inherit
 
 on:
@@ -46,10 +45,20 @@ on:
 
       # --- Versions ---
       gaie_version:
-        description: 'Gateway API Inference Extension version — used for both the CRD apply and the scheduler chart version'
+        description: 'Gateway API Inference Extension version — used for the CRD apply (kubectl apply -k .../config/crd?ref=<gaie_version>)'
         required: false
         type: string
         default: 'v1.5.0'
+      router_chart_oci:
+        description: 'OCI URI for the router/scheduler helm chart. Default is the llm-d-router-standalone-dev chart that the well-lit paths migrated to in #1607.'
+        required: false
+        type: string
+        default: 'oci://ghcr.io/llm-d/charts/llm-d-router-standalone-dev'
+      router_chart_version:
+        description: 'Version (--version) for the router/scheduler chart. Default v0 matches the GKE/CKS callers.'
+        required: false
+        type: string
+        default: 'v0'
 
       # --- Repository ---
       llm_d_ref:
@@ -70,7 +79,7 @@ on:
         type: string
         default: ''
       helm_post_renderer:
-        description: 'Optional `--post-renderer` path (relative to repo root) for `helm install`. Used by guides that apply kustomize patches to the standalone chart (e.g. precise-prefix-cache-aware UDS tokenizer).'
+        description: 'Optional `--post-renderer` path (relative to repo root) for `helm install`. Used by guides that need kustomize patches on top of the rendered chart.'
         required: false
         type: string
         default: ''
@@ -107,6 +116,8 @@ jobs:
       NAMESPACE: ${{ inputs.namespace }}
       SCHEDULER_RELEASE_NAME: ${{ inputs.scheduler_release_name }}
       GAIE_VERSION: ${{ inputs.gaie_version }}
+      ROUTER_CHART_OCI: ${{ inputs.router_chart_oci }}
+      ROUTER_CHART_VERSION: ${{ inputs.router_chart_version }}
       MODELSERVER_KUSTOMIZE_DIR: ${{ inputs.modelserver_kustomize_dir || format('guides/{0}/modelserver/xpu/vllm', inputs.guide_name) }}
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
     steps:
@@ -179,15 +190,15 @@ jobs:
             POST_RENDERER_ARG="--post-renderer ${HELM_POST_RENDERER}"
           fi
 
-          echo "Installing scheduler (standalone chart) via helm..."
+          echo "Installing scheduler chart ${ROUTER_CHART_OCI}@${ROUTER_CHART_VERSION} via helm..."
           # shellcheck disable=SC2086
           helm install "$SCHEDULER_RELEASE_NAME" \
-            oci://registry.k8s.io/gateway-api-inference-extension/charts/standalone \
+            "$ROUTER_CHART_OCI" \
             ${VALUES_ARGS} \
             ${POST_RENDERER_ARG} \
             ${HELM_INSTALL_ARGS} \
             -n "$NAMESPACE" \
-            --version "$GAIE_VERSION" \
+            --version "$ROUTER_CHART_VERSION" \
             | tee "$HOME/${GUIDE_NAME}-xpu-deployment.log"
 
       - name: Deploy model server via kustomize
