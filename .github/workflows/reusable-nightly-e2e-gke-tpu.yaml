@@ -286,6 +286,14 @@ on:
           echo "  CHIPS_PER_VM: $CHIPS_PER_VM"
           echo "  VMS: $VMS"
 
+          check_tpus() {
+            TOTAL_TPUS=$(kubectl get nodes -o json | \
+              jq '[.items[].status.allocatable["google.com/tpu"] // "0" | tonumber] | add // 0')
+            ALLOCATED_TPUS=$(kubectl get pods --all-namespaces -o json | \
+              jq '[.items[] | select((.status.phase == "Running" or .status.phase == "Pending") and .metadata.deletionTimestamp == null) | .spec.containers[]?.resources.requests["google.com/tpu"] // "0" | tonumber] | add // 0')
+            AVAILABLE_TPUS=$((TOTAL_TPUS - ALLOCATED_TPUS))
+          }
+
           cat <<EOF | kubectl apply -n "$NAMESPACE" -f -
           apiVersion: batch/v1
           kind: Job
