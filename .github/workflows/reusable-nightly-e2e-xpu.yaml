@@ -50,12 +50,12 @@ on:
         type: string
         default: 'v1.5.0'
       router_chart_oci:
-        description: 'OCI URI for the router/scheduler helm chart. Default is the llm-d-router-standalone-dev chart that the well-lit paths migrated to in #1607.'
+        description: 'OCI URI for the router helm chart.'
         required: false
         type: string
         default: 'oci://ghcr.io/llm-d/charts/llm-d-router-standalone-dev'
       router_chart_version:
-        description: 'Version (--version) for the router/scheduler chart. Default v0 matches the GKE/CKS callers.'
+        description: 'Version for the router chart.'
         required: false
         type: string
         default: 'v0'
