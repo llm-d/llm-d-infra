@@ -147,8 +147,8 @@ jobs:
         if: inputs.install_monitoring
         shell: bash
         run: |
-          cd docs/monitoring
-          ./scripts/install-prometheus-grafana.sh || true
+          cd guides/recipes/observability
+          ./install-prometheus-grafana.sh || true
 
       - name: Create namespace
         shell: bash
