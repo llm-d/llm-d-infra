@@ -190,6 +190,9 @@ jobs:
           elif [[ "$CLUSTER_TYPE" == "rocm" ]]; then
             echo "Targetting self-hosted runners (AMD/CI)"
             RUNNERS_JSON_LIST='["rocm"]'
+          elif [[ "$CLUSTER_TYPE" == "xpu" ]]; then
+            echo "Targetting self-hosted runners (Intel XPU)"
+            RUNNERS_JSON_LIST='["xpu"]'
           else
             echo "Targetting hosted runners (non-OpenShift)"
             RUNNERS_JSON_LIST='["ubuntu-latest"]'
