@@ -1,0 +1,43 @@
+name: Check for at least one success on past runs
+
+on:
+  workflow_call:
+    inputs:
+      workflow_name_query:
+        description: 'Name of the workflow to be queried'
+        required: false
+        type: 'string'
+        default: 'optimized-baseline-gke-acc-gpu-vllm-x.yaml'
+      time_window_query:
+        description: 'How many days in the past to query'
+        required: true
+        type: 'string'
+        default: '5'
+      branch_query:
+        description: 'Branch to be queried'
+        required: false
+        type: string
+        default: 'main'
+jobs:
+  check_for_success:
+    runs-on: ubuntu-latest
+    env:
+      WNQ: ${{ inputs.workflow_name_query || 'optimized-baseline-gke-acc-gpu-vllm-x.yaml' }}
+      TWQ: ${{ inputs.time_window_query || '5' }}
+      BQ: ${{ inputs.branch_query || 'main' }}
+    steps:
+      - name: Count successes on the past days
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run list -w $WNQ \
+          -b $BQ \
+          -s success \
+          --limit 200 \
+          --json databaseId,createdAt,status,conclusion,url \
+          --jq ".[] | select(.createdAt > (now - ($TWQ * 86400) | strftime(\"%Y-%m-%dT%H:%M:%SZ\")))" > /tmp/results
+          if [[ $(cat /tmp/results | jq -s 'length') -gt 0 ]]; then
+            exit 0
+          else
+            exit 1
+          fi
