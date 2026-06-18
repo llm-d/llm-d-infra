@@ -893,6 +893,11 @@ jobs:
           if [[ $LLMDBENCH_CICD_CLEANUP == 'false' ]]; then
             exit 0
           fi
+          HAS_LLMDBENCHMARK_VERSION=$(llmdbenchmark 2>&1 --version | grep '^llmdbenchmark:' | cut -d ':' -f 2 || true)
+          if [[ -z $HAS_LLMDBENCHMARK_VERSION ]]; then
+            echo "### llmdbenchmark was not even installed, will not attempt to teardown"
+            exit 0
+          fi
           cd ~/work/llm-d-benchmark/llm-d-benchmark/
           LLMDBENCH_CMD="llmdbenchmark --spec $LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO $LLMDBENCH_EXTRA_CMD teardown $LLMDBENCH_EXTRA_TEARDOWN_OPERATION_CMD  --namespace $LLMDBENCH_CICD_NS --gateway-class $LLMDBENCH_CICD_GATEWAY_CLASS --release $LLMDBENCH_CICD_R --methods $LLMDBENCH_CICD_METHOD"
           echo "### $LLMDBENCH_CMD ###"
