@@ -52,7 +52,7 @@ Pinned in `guides/prereq/gateway-provider/`:
 
 | Dependency | Current Pin | File Location | Notes |
 |-----------|-------------|---------------|-------|
-| **LeaderWorkerSet (LWS)** | `0.7.0` | `e2e-wide-ep-accelerator-test.yaml` line 387 | Also in nightly LWS workflows |
+| **LeaderWorkerSet (LWS)** | `0.9.0` | `llm-d/llm-d`: `install-lws.sh` (`LWS_VERSION`), `ci-kustomize-dry-run.yaml` CRD URL | [kubernetes-sigs/lws](https://github.com/kubernetes-sigs/lws); pin update: [llm-d/llm-d#1858](https://github.com/llm-d/llm-d/pull/1858); upgrade note: [kubernetes-sigs/lws#880](https://github.com/kubernetes-sigs/lws/issues/880) |
 | **InferencePool (GKE)** | `v1.2.1` | `e2e-wide-ep-accelerator-gke.yaml` line 45 | **STALE** — helmfiles use v1.3.0 |
 
 ## Hardware-Specific vLLM Images
