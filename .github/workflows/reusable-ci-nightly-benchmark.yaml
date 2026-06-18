@@ -438,6 +438,21 @@ jobs:
           kubectl get node
         shell: bash
 
+      - name: Show cluster annotations, labels and resources
+        if: env.LLMDBENCH_IS_VERBOSE == 'tru'
+        id: infra_show_cluster_nodes_deep
+        run: |
+          echo "### Attempting to show node annotations..."
+          kubectl get nodes -o json | jq -r '.items[].metadata.annotations'
+          echo ""
+          echo "### Attempting to show node labels..."
+          kubectl get nodes -o json | jq -r '.items[].metadata.labels'
+          echo ""
+          echo "### Attempting to show node resources..."
+          kubectl get nodes -o json | jq -r '.items[].status.allocatable'
+          echo ""
+        shell: bash
+
       - name: Show cluster storageclasses
         id: infra_show_cluster_storageclasses
         run: |
