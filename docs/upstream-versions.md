@@ -59,5 +59,4 @@ Pinned in `guides/prereq/gateway-provider/`:
 
 | Variant | Current Pin | File Location | Upstream |
 |---------|-------------|---------------|----------|
-| **vLLM Gaudi (HPU)** | `1.22.0` | `guides/*/values_hpu.yaml` | [HabanaAI/vllm-fork](https://github.com/HabanaAI/vllm-fork) |
 | **vLLM TPU** | `v0.13.2-ironwood` | `guides/*/values_tpu.yaml` | [vllm-project/vllm](https://github.com/vllm-project/vllm) |

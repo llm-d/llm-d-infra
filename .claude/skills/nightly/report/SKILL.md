@@ -116,11 +116,11 @@ done < $LOG_DIR/failure-timeline.txt > $LOG_DIR/categorized-failures.txt
 
 ### Daily Heatmap
 
-| Day | OCP | GKE | CKS | EC2 | HPU |
-|-----|-----|-----|-----|-----|-----|
-| Mon | 6/6 | 2/3 | — | 1/1 | 2/2 |
-| Tue | 5/6 | 3/3 | — | 0/1 | 2/2 |
-| ... | ... | ... | ... | ... | ... |
+| Day | OCP | GKE | CKS | EC2 |
+|-----|-----|-----|-----|-----|
+| Mon | 6/6 | 2/3 | — | 1/1 |
+| Tue | 5/6 | 3/3 | — | 0/1 |
+| ... | ... | ... | ... | ... |
 ```
 
 ## Phase 5: Trend Analysis

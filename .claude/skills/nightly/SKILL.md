@@ -125,7 +125,7 @@ Then follow the appropriate sub-skill for each failure.
 
 | Repo | Nightly Workflows |
 |------|-------------------|
-| `llm-d/llm-d` | 6 OCP + 3 GKE + 3 CKS + EC2 + HPU + XPU callers |
+| `llm-d/llm-d` | 6 OCP + 3 GKE + 3 CKS + EC2 + XPU callers |
 | `llm-d/llm-d-workload-variant-autoscaler` | 1 OCP WVA caller |
 
 ## Reusable Workflows (in this repo)
@@ -139,26 +139,25 @@ Then follow the appropriate sub-skill for each failure.
 
 ## Schedule Matrix
 
-| Time (UTC) | OCP | GKE | CKS | EC2 | HPU | XPU |
-|------------|-----|-----|-----|-----|-----|-----|
-| 00:00 | inference-sched | | | | | |
-| 00:30 | pd-disagg | | | | | |
-| 01:00 | precise-prefix | | | | | |
-| 01:30 | sim-accel | | | | | |
-| 02:00 | tiered-prefix | | | | | |
-| 02:30 | wide-ep-lws | | | | | |
-| 03:00 | | | inference-sched | | | |
-| 03:30 | | | pd-disagg | | | |
-| 04:00 | | | wide-ep-lws | | inference-sched | |
-| 04:30 | | | | | pd-gaudi | |
-| 05:00 | | | wva | | | |
-| 05:30 | | | benchmark | | | |
-| 06:00 | | | | accel-test | | |
-| 06:30 | | | | pd-accel | | |
-| 07:00 | | | | wide-ep-accel | | |
-| 10:00 | | inference-sched | | | | |
-| 10:30 | | pd-disagg | | | | |
-| 11:00 | | wide-ep-lws | | | | inference+pd+prefix |
+| Time (UTC) | OCP | GKE | CKS | EC2 | XPU |
+|------------|-----|-----|-----|-----|-----|
+| 00:00 | inference-sched | | | | |
+| 00:30 | pd-disagg | | | | |
+| 01:00 | precise-prefix | | | | |
+| 01:30 | sim-accel | | | | |
+| 02:00 | tiered-prefix | | | | |
+| 02:30 | wide-ep-lws | | | | |
+| 03:00 | | | inference-sched | | |
+| 03:30 | | | pd-disagg | | |
+| 04:00 | | | wide-ep-lws | | |
+| 05:00 | | | wva | | |
+| 05:30 | | | benchmark | | |
+| 06:00 | | | | accel-test | |
+| 06:30 | | | | pd-accel | |
+| 07:00 | | | | wide-ep-accel | |
+| 10:00 | | inference-sched | | | |
+| 10:30 | | pd-disagg | | | |
+| 11:00 | | wide-ep-lws | | | inference+pd+prefix |
 
 ## Related Skills
 

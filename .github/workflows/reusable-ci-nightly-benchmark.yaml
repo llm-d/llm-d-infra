@@ -29,7 +29,7 @@ on:
         type: 'string'
         default: 'auto'
       accelerator_type:
-        description: 'Type of accelerator (gpu, cpu, sim, amd, xpu, hpu, tpu/v6, tpu/v7) (ONLY VALID FOR "kustomize" standyp method)'
+        description: 'Type of accelerator (gpu, cpu, sim, amd, xpu, tpu/v6, tpu/v7) (ONLY VALID FOR "kustomize" standyp method)'
         required: false
         type: 'string'
         default: 'gpu'
@@ -258,10 +258,6 @@ jobs:
           if [[ ! -z $IS_XPU ]]; then
             export CLUSTER_TYPE=xpu
           fi
-          IS_HPU=$(echo "${{ github.workflow }}" | grep -i "\hpu" || true)$(echo "${{ inputs.standup_scenario }}" | grep -i "hpu" || true)
-          if [[ ! -z $IS_HPU ]]; then
-            export CLUSTER_TYPE=hpu
-          fi
           echo "Cluster provider is \"$CLUSTER_TYPE\""
           echo "cluster_type=$CLUSTER_TYPE" >> "$GITHUB_OUTPUT"
           echo "CLUSTER_TYPE=$CLUSTER_TYPE" >> "$GITHUB_ENV"
@@ -279,9 +275,6 @@ jobs:
           elif [[ "$CLUSTER_TYPE" == "xpu" ]]; then
             echo "Targetting self-hosted runners (Intel/CI)"
             RUNNERS_JSON_LIST='["xpu"]'
-          elif [[ "$CLUSTER_TYPE" == "hpu" ]]; then
-            echo "Targetting self-hosted runners (Intel/CI)"
-            RUNNERS_JSON_LIST='["hpu-dispatch-runner"]'
           else
             echo "Targetting hosted runners (non-OpenShift)"
             RUNNERS_JSON_LIST='["ubuntu-latest"]'

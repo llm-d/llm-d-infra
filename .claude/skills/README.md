@@ -48,7 +48,7 @@ All skills redirect CI logs and kubectl output to files under `/tmp/llm-d/nightl
 
 | Repo | Nightly Workflows |
 |------|-------------------|
-| `llm-d/llm-d` | 6 OCP + 3 GKE + 3 CKS + EC2 + HPU + XPU |
+| `llm-d/llm-d` | 6 OCP + 3 GKE + 3 CKS + EC2 + XPU |
 | `llm-d/llm-d-workload-variant-autoscaler` | 1 OCP WVA |
 
 ## Reusable Workflows (in this repo)
