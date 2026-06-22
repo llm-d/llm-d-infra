@@ -53,6 +53,11 @@ on:
         required: false
         type: 'string'
         default: ''
+      modelserver_kustomize_path:
+        description: 'Path to override the default modelserver kustomize directory with in the README'
+        required: false
+        type: 'string'
+        default: ''
       cluster_namespace:
         description: 'Cluster namespace'
         required: false
@@ -318,6 +323,7 @@ jobs:
       LLMDBENCH_CICD_OFFLOADING_TARGET: ${{ inputs.offloading_target || '' }}
       LLMDBENCH_CICD_CONNECTOR: ${{ inputs.connector || '' }}
       LLMDBENCH_CICD_CLEANUP: ${{ inputs.cleanup || 'true' }}
+      LLMDBENCH_CICD_MODELSERVER_KUSTOMIZE_PATH: ${{ inputs.modelserver_kustomize_path || '' }}
       LLMDBENCH_CICD_DATA_ACCESS_TIMEOUT: ${{ inputs.data_access_timeout || '1200' }}
       LLMDBENCH_CICD_JOB_TIMEOUT: ${{ inputs.job_timeout || '2700s' }}
       LLMDBENCH_CICD_KUSTOMIZE_STANDUP_TIMEOUT: ${{ inputs.standup_timeout || '2400' }}
@@ -778,7 +784,7 @@ jobs:
           echo -n "; $lkcmd" >> ~/work/lkcmd.txt
           eval $lkcmd
           cat ~/work/llm-d-benchmark/llm-d-benchmark/config/scenarios/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO.yaml | yq '.scenario[0].kustomize.guideVariableOverrides.NAMESPACE'
-          export LLMDBENCH_CICD_BACKEND_ACCELERATOR=$(echo $LLMDBENCH_CICD_ACCELERATOR/$LLMDBENCH_CICD_BACKEND/$LLMDBENCH_CICD_CONNECTOR/$LLMDBENCH_CICD_OFFLOADING_TARGET | sed -e 's^//^/^g' -e 's^/$^^g')
+          export LLMDBENCH_CICD_BACKEND_ACCELERATOR=$(echo $LLMDBENCH_CICD_ACCELERATOR/$LLMDBENCH_CICD_BACKEND | sed 's^//^/^g')
           echo "### Setting \"acceleratorBackend\" to \"$LLMDBENCH_CICD_BACKEND_ACCELERATOR\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
           lkcmd="yq -i \".scenario[0].kustomize.acceleratorBackend = \\\"$LLMDBENCH_CICD_BACKEND_ACCELERATOR\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
           echo -n "; $lkcmd" >> ~/work/lkcmd.txt
@@ -798,6 +804,10 @@ jobs:
         id: prereqs_apply_overrides_to_kustomize_manifests
         if: env.LLMDBENCH_CICD_METHOD == 'kustomize'
         run: |
+          if [[ -n $LLMDBENCH_CICD_MODELSERVER_KUSTOMIZE_PATH ]]; then
+            echo "### Overriding first modelserver command in README to target $LLMDBENCH_CICD_MODELSERVER_KUSTOMIZE_PATH"
+            sed -i -E "s^gpu/vllm/[^ $]*^$LLMDBENCH_CICD_MODELSERVER_KUSTOMIZE_PATH/^g" ~/work/llm-d/llm-d/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/README.md
+          fi
           LLMDBENCH_CICD_KUSTOMIZE_PATH=~/work/llm-d/llm-d/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/$LLMDBENCH_CICD_ACCELERATOR/$LLMDBENCH_CICD_BACKEND/$LLMDBENCH_CICD_CONNECTOR/$LLMDBENCH_CICD_OFFLOADING_TARGET/$LLMDBENCH_CICD_INFRA_PROVIDER
           echo "Kustomize full path is \"$LLMDBENCH_CICD_KUSTOMIZE_PATH\". Will now attempt to detect model name..."
           detected_model=$(kubectl kustomize $LLMDBENCH_CICD_KUSTOMIZE_PATH | yq .spec.template.spec.containers[0].args | grep -Ev "\- \--|\- '|\---|\- \||    \--|.*exec vllm|'|null|#|\"|find|START_RANK" | sed -e 's^ ^^g' -e 's|^-||g' -e 's^\\^^g' -e '/^$/d' | uniq || true)
