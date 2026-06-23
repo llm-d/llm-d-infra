@@ -707,11 +707,23 @@ jobs:
             echo "::error::Pods in $NAMESPACE did not become ready within $POD_WAIT_TIMEOUT"
             echo "--- Pods ---"
             kubectl get pods -n "$NAMESPACE" -o wide || true
+            echo "--- Namespace Events ---"
+            kubectl get events -n "$NAMESPACE" --sort-by='.lastTimestamp' || true
             echo "--- Describe non-ready pods ---"
-            for pod in $(kubectl get pods -n "$NAMESPACE" --field-selector=status.phase!=Running -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
-              echo "=== Pod: $pod ==="
-              kubectl describe pod "$pod" -n "$NAMESPACE" || true
-              kubectl logs "$pod" -n "$NAMESPACE" --tail=50 || true
+            for pod in $(kubectl get pods -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+              READY=$(kubectl get pod "$pod" -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
+              if [ "$READY" != "True" ]; then
+                echo "=== Pod: $pod ==="
+                kubectl describe pod "$pod" -n "$NAMESPACE" || true
+                kubectl logs "$pod" -n "$NAMESPACE" --all-containers=true --tail=50 || true
+              fi
+            done
+            mkdir -p /tmp/pod-timeout-$GUIDE_NAME
+            kubectl get pods -n "$NAMESPACE" -o wide > /tmp/pod-timeout-$GUIDE_NAME/pods.txt 2>&1 || true
+            kubectl get events -n "$NAMESPACE" --sort-by='.lastTimestamp' > /tmp/pod-timeout-$GUIDE_NAME/events.txt 2>&1 || true
+            for pod in $(kubectl get pods -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+              kubectl describe pod "$pod" -n "$NAMESPACE" > /tmp/pod-timeout-$GUIDE_NAME/${pod}-describe.txt 2>&1 || true
+              kubectl logs "$pod" -n "$NAMESPACE" --all-containers=true --tail=100 > /tmp/pod-timeout-$GUIDE_NAME/${pod}-logs.txt 2>&1 || true
             done
             exit 1
           fi
@@ -730,6 +742,14 @@ jobs:
 
           echo "All pods in $NAMESPACE are ready"
           kubectl get pods -n "$NAMESPACE"
+
+      - name: Upload pod timeout diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: pod-timeout-diagnostics-${{ inputs.guide_name }}
+          path: /tmp/pod-timeout-${{ inputs.guide_name }}
+          retention-days: 7
 
       - name: Wait for gateway to be ready
         run: |
