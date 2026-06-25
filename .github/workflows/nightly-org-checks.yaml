@@ -81,7 +81,7 @@ jobs:
       REPO: ${{ matrix.repo }}
     steps:
       - name: Checkout target repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: ${{ matrix.repo }}
           token: ${{ secrets.ORG_GITHUB_TOKEN }}
@@ -292,7 +292,7 @@ jobs:
       # -------------------------------------------------------
       - name: Checkout infra repo for upstream script
         if: inputs.skip_upstream != true
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: llm-d/llm-d-infra
           path: _infra
