@@ -107,20 +107,20 @@ on:
         type: 'string'
         default: 'v1.5.0'
       router_standalone_chart_url:
-        description: 'router chart URL ("oci://ghcr.io/llm-d/charts/llm-d-router-standalone-dev")'
+        description: 'standalone router chart URL ("oci://ghcr.io/llm-d/charts/llm-d-router-standalone")'
         required: false
         type: 'string'
-        default: 'oci://ghcr.io/llm-d/charts/llm-d-router-standalone-dev'
+        default: 'oci://ghcr.io/llm-d/charts/llm-d-router-standalone'
       router_gateway_chart_url:
-        description: 'router chart URL ("oci://ghcr.io/llm-d/charts/llm-d-router-gateway-dev")'
+        description: 'gateway router chart URL ("oci://ghcr.io/llm-d/charts/llm-d-router-gateway")'
         required: false
         type: 'string'
-        default: 'oci://ghcr.io/llm-d/charts/llm-d-router-gateway-dev'
+        default: 'oci://ghcr.io/llm-d/charts/llm-d-router-gateway'
       router_chart_version:
-        description: 'llm-d-router version ("v0")'
+        description: 'llm-d-router version ("v0.9.0")'
         required: false
         type: 'string'
-        default: 'v0'
+        default: 'v0.9.0'
       dry_run:
         description: 'Execute workflow in "dry-run" mode ("true", "false")'
         required: false
@@ -340,8 +340,8 @@ jobs:
       HF_TOKEN: ${{ secrets.LLMDBENCH_HF_TOKEN }}
       LLMDBENCH_CICD_GAIE_VERSION: ${{ inputs.gaie_version || 'v1.5.0' }}
       LLMDBENCH_CICD_ROUTER_CHART_VERSION: ${{ inputs.router_chart_version || 'v0' }}
-      LLMDBENCH_CICD_ROUTER_STANDALONE_CHART_URL: ${{ inputs.router_standalone_chart_url || 'oci://ghcr.io/llm-d/charts/llm-d-router-standalone-dev' }}
-      LLMDBENCH_CICD_ROUTER_GATEWAY_CHART_URL: ${{ inputs.router_gateway_chart_url || 'oci://ghcr.io/llm-d/charts/llm-d-router-gateway-dev' }}
+      LLMDBENCH_CICD_ROUTER_STANDALONE_CHART_URL: ${{ inputs.router_standalone_chart_url || 'oci://ghcr.io/llm-d/charts/llm-d-router-standalone' }}
+      LLMDBENCH_CICD_ROUTER_GATEWAY_CHART_URL: ${{ inputs.router_gateway_chart_url || 'oci://ghcr.io/llm-d/charts/llm-d-router-gateway' }}
       LLMDBENCH_CICD_GATEWAY_CLASS: ${{ inputs.gateway_class || 'istio' }}
       LLMDBENCH_IS_DRY_RUN: ${{ inputs.dry_run || 'false' }}
       LLMDBENCH_IS_VERBOSE: ${{ inputs.verbose || 'false' }}
