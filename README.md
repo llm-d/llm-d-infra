@@ -1,4 +1,6 @@
 # llm-d-infra
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fllm-d%2Fllm-d-infra.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fllm-d%2Fllm-d-infra?ref=badge_shield)
+
 
 Repo for CI and infrastructure required to maintain llm-d org member repos.
 
@@ -140,3 +142,7 @@ To migrate from copy-pasted workflows to shared reusable ones:
 ## Sync Workflow
 
 The `sync-caller-workflows.yaml` checks which consuming repos still use local copies vs. shared reusable workflows. It runs when reusable workflows change and generates an adoption report in the workflow summary.
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fllm-d%2Fllm-d-infra.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fllm-d%2Fllm-d-infra?ref=badge_large)
