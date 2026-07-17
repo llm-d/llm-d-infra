@@ -53,7 +53,7 @@ on:
         description: 'OCI URI for the router helm chart.'
         required: false
         type: string
-        default: 'oci://ghcr.io/llm-d/charts/llm-d-router-standalone-dev'
+        default: 'oci://ghcr.io/llm-d/charts/llm-d-router-standalone'
       router_chart_version:
         description: 'Version for the router chart.'
         required: false
