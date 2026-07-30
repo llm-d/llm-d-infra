@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Mark stale issues and PRs
-        uses: actions/stale@v10
+        uses: actions/stale@v11
         with:
           days-before-issue-stale: ${{ inputs.days-before-issue-stale }}
           days-before-pr-stale: ${{ inputs.days-before-pr-stale }}
@@ -58,7 +58,7 @@ jobs:
             To prevent this PR from being closed, add a comment or remove the `lifecycle/stale` label.
 
       - name: Mark items rotten
-        uses: actions/stale@v10
+        uses: actions/stale@v11
         with:
           days-before-issue-stale: 15
           days-before-pr-stale: 7
@@ -69,7 +69,7 @@ jobs:
           labels-to-remove-when-stale: 'lifecycle/stale'
 
       - name: Close rotten items
-        uses: actions/stale@v10
+        uses: actions/stale@v11
         with:
           days-before-stale: -1
           days-before-issue-close: 15
