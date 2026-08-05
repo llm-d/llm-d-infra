@@ -565,6 +565,23 @@ jobs:
           rm pvc.yaml
         shell: bash
 
+      - name: Create nightly PriorityClass
+        id: infra_create_nightly_prioclass
+        run: |
+          echo "Creating PriorityClass \"$LLMDBENCH_CICD_PRIORITY_CLASS\"..."
+          cat <<PRIORITY_EOF > prioclass.yaml
+          apiVersion: scheduling.k8s.io/v1
+          kind: PriorityClass
+          metadata:
+            name: $LLMDBENCH_CICD_PRIORITY_CLASS
+          value: 1000000
+          preemptionPolicy: PreemptLowerPriority
+          globalDefault: false
+          description: "High priority for nightly CI/CD llm-d workloads — preempts default-priority pods"
+          PRIORITY_EOF
+          kubectl apply -f prioclass.yaml
+          rm prioclass.yaml
+
       - name: Request TPUs (DWS)
         id: infra_request_tpus
         if: env.LLMDBENCH_CICD_TARGET == 'gke' && contains(inputs.accelerator_type, 'tpu') && inputs.tpu_chips > 0
@@ -611,6 +628,10 @@ jobs:
             completions: $VMS
             template:
               spec:
+                # The DWS placeholder is what actually acquires the chips, so it needs the
+                # priority class too; without it the request queues behind priority-0 workloads
+                # on scarce TPU capacity (llm-d/llm-d#1677).
+                priorityClassName: $LLMDBENCH_CICD_PRIORITY_CLASS
                 nodeSelector:
                   cloud.google.com/gke-flex-start: "true"
                   cloud.google.com/gke-tpu-accelerator: $ACCELERATOR
@@ -650,23 +671,6 @@ jobs:
         run: |
           # Release the chips so test can use them
           kubectl delete job tpu-request-job -n "$LLMDBENCH_CICD_NS"
-
-      - name: Create nightly PriorityClass
-        id: infra_create_nightly_prioclass
-        run: |
-          echo "Creating PriorityClass \"$LLMDBENCH_CICD_PRIORITY_CLASS\"..."
-          cat <<PRIORITY_EOF > prioclass.yaml
-          apiVersion: scheduling.k8s.io/v1
-          kind: PriorityClass
-          metadata:
-            name: $LLMDBENCH_CICD_PRIORITY_CLASS
-          value: 1000000
-          preemptionPolicy: PreemptLowerPriority
-          globalDefault: false
-          description: "High priority for nightly CI/CD llm-d workloads — preempts default-priority pods"
-          PRIORITY_EOF
-          kubectl apply -f prioclass.yaml
-          rm prioclass.yaml
 
       - name: Label node for simulated accelerators
         id: infra_label_node_for_simulated_accelerators
@@ -923,9 +927,32 @@ jobs:
             find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/$LLMDBENCH_CICD_CONNECTOR/router/" -type f -name "*.yaml" -exec sed -i "s/optimized-baseline/$LLMDBENCH_CICD_SCENARIO/g" {} \;
           fi
           echo "### Setting priority class \"$LLMDBENCH_CICD_PRIORITY_CLASS\" on scenario \"$LLMDBENCH_CICD_SCENARIO\""
-          for i in vllm decode prefill; do
-            find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/" -type f -name "patch-$i.yaml" -exec yq ".spec.template.spec.priorityClassName=\"$LLMDBENCH_CICD_PRIORITY_CLASS\"" -i {} \;
-            find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/" -type f -name "patch-$i.yaml" -exec bash -c 'echo -n $1:; yq ".spec.template.spec.priorityClassName" $1' _ {} \;
+          # Match on the manifest's kind rather than on a patch-<name>.yaml filename: guides that ship
+          # whole resources instead of patches (e.g. wide-ep-lws, whose prefill/decode are
+          # LeaderWorkerSets) were silently skipped, so their pods ran at priority 0 and could never
+          # preempt (#1677). The pod template lives at a different path per kind.
+          find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/" -type f \( -name "*.yaml" -o -name "*.yml" \) -print0 | \
+          while IFS= read -r -d '' manifest; do
+            kind=$(PC="$LLMDBENCH_CICD_PRIORITY_CLASS" yq -r 'select(documentIndex == 0) | .kind // ""' "$manifest" 2>/dev/null || echo "")
+            case "$kind" in
+              Deployment|StatefulSet|Job|DaemonSet|ReplicaSet)
+                PC="$LLMDBENCH_CICD_PRIORITY_CLASS" yq -i '.spec.template.spec.priorityClassName = env(PC)' "$manifest"
+                echo -n "$manifest ($kind): "; yq '.spec.template.spec.priorityClassName' "$manifest"
+                ;;
+              LeaderWorkerSet)
+                # workerTemplate is required; leaderTemplate is optional and must not be conjured up
+                # empty, since a leaderTemplate without containers fails admission.
+                PC="$LLMDBENCH_CICD_PRIORITY_CLASS" yq -i '.spec.leaderWorkerTemplate.workerTemplate.spec.priorityClassName = env(PC)' "$manifest"
+                echo -n "$manifest ($kind, workerTemplate): "; yq '.spec.leaderWorkerTemplate.workerTemplate.spec.priorityClassName' "$manifest"
+                if [[ $(yq '.spec.leaderWorkerTemplate.leaderTemplate // ""' "$manifest") != "" ]]; then
+                  PC="$LLMDBENCH_CICD_PRIORITY_CLASS" yq -i '.spec.leaderWorkerTemplate.leaderTemplate.spec.priorityClassName = env(PC)' "$manifest"
+                  echo -n "$manifest ($kind, leaderTemplate): "; yq '.spec.leaderWorkerTemplate.leaderTemplate.spec.priorityClassName' "$manifest"
+                fi
+                ;;
+              *)
+                continue
+                ;;
+            esac
           done
           if [[ $LLMDBENCH_CICD_DECODE_PODS != "auto" ]]; then
             echo "### Setting decode pods to \"$LLMDBENCH_CICD_DECODE_PODS\" on scenario \"$LLMDBENCH_CICD_SCENARIO\""
