@@ -602,10 +602,6 @@ jobs:
             -l job-name=tpu-request-job \
             -n "$LLMDBENCH_CICD_NS" \
             --timeout=$LLMDBENCH_CICD_JOB_TIMEOUT
-
-          # Release the chips so test can use them
-          kubectl delete job tpu-request-job -n "$LLMDBENCH_CICD_NS"
-
           # Export topology and accelerator so subsequent steps (like scenario overrides) can read them
           echo "TPU_ACCELERATOR=$ACCELERATOR" >> $GITHUB_ENV
           echo "TPU_TOPOLOGY=$TOPOLOGY" >> $GITHUB_ENV
@@ -618,6 +614,13 @@ jobs:
           echo "| TPU Topology | $TOPOLOGY |" >> $GITHUB_STEP_SUMMARY
           echo "| Requested Chips | $CHIPS_TO_REQUEST |" >> $GITHUB_STEP_SUMMARY
 
+      - name: Cleanup TPU DWS Request
+        id: infra_clean_tpus
+        if: always() && env.LLMDBENCH_CICD_TARGET == 'gke' && contains(inputs.accelerator_type, 'tpu') && inputs.tpu_chips > 0
+        run: |
+          # Release the chips so test can use them
+          kubectl delete job tpu-request-job -n "$LLMDBENCH_CICD_NS"
+      
       - name: Create nightly PriorityClass
         id: infra_create_nightly_prioclass
         run: |
@@ -996,14 +999,16 @@ jobs:
         run: |
           if [[ "${{ inputs.dry_run }}" == "true" ]]; then
             echo "Skipping data upload to bucket, due to \"dry-run\" mode activated"
-          elif [[ "${{ inputs.workload }}" == "sanity_random.yaml" ]]; then
-            echo "Skipping data upload to bucket, workload is \"sanity_random.yml\""
           else
             cd "$LLMDBENCH_WORKSPACE"
             REG_RESULTS=$(find . -name results | sed "s^/results$^^g" | cut -d '/' -f 2)
-            find $REG_RESULTS/ -name run_metadata.yaml -exec sh -c "echo 'github_run_id: \"${{ github.run_id }}\"' >> {}" \;
-            echo "Uploading data from directory \"REG_RESULTS\" to \"$GCS_FULL_PATH\""
-            gcloud storage cp -r $REG_RESULTS/ "$GCS_FULL_PATH" || true
+            if [[ -n "$REG_RESULTS" && -d "$REG_RESULTS" ]]; then
+              find $REG_RESULTS/ -name run_metadata.yaml -exec sh -c "echo 'github_run_id: \"${{ github.run_id }}\"' >> {}" \;
+              echo "Skipping data upload to official bucket, due to test in fork, instead uploading to igw_benchmark"
+              gcloud storage cp -r $REG_RESULTS/ gs://igw-e2e-benchmark-results/tpu/$LLMDBENCH_CICD_SCENARIO || true
+            else
+              echo "### No benchmark results directory found to upload"
+            fi
           fi
         shell: bash
 
