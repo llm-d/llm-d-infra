@@ -329,6 +329,7 @@ jobs:
       failure_category: ${{ steps.detect_failure.outputs.failure_category }}
 
     env:
+      LLMDBENCH_CICD_REPO_PATH: ${{ github.workspace }}
       LLMDBENCH_CICD_NS: ${{ inputs.cluster_namespace || 'llmdbenchcicd' }}
       LLMDBENCH_CICD_R: ${{ inputs.helm_release || 'standalone' }}
       LLMDBENCH_CICD_SCENARIO_DIR: ${{ inputs.scenario_dir || 'cicd' }}
@@ -676,33 +677,26 @@ jobs:
           echo "GCS_FULL_PATH=$GCS_FULL_PATH" >> $GITHUB_ENV
         shell: bash
 
-      - name: Conditionally clone llm-d from main repo
-        id: prereq_conditionally_clone_llmd
+      - name: Prepare checked-out llm-d repository
+        id: prereq_prepare_llmd
         run: |
-          #find ~ -type f -name "cks_nvshmem3.3.9.patch" -print
-          cd ~
-          if [[ -d ~/_work/llm-d/llm-d ]]; then
-            ln -s ~/_work ~/work
+          if [[ ! -d "$LLMDBENCH_CICD_REPO_PATH/.git" ]]; then
+            echo "### ERROR: llm-d checkout not found at \"$LLMDBENCH_CICD_REPO_PATH\""
+            exit 1
           fi
-          if [[ ! -d ~/work/llm-d ]]; then
-            mkdir -p ~/work/llm-d/
-            cd ~/work/llm-d/
-            echo "### llm-d code NOT found, will clone now"
-            git clone https://github.com/llm-d/llm-d.git
-          else
-            echo "### llm-d code is already present."
-            is_pr_test=$(echo $GITHUB_REF_NAME | grep -E "pr-[0-9]+" || true)
-            if [[ -z $is_pr_test ]]; then
-              echo "### Refreshing to origin/main and deleting llm-d-benchmark"
-            # Refresh the persistent checkout so it doesn't run against stale guide config.
-              git -C ~/work/llm-d/llm-d fetch --prune origin
-              git -C ~/work/llm-d/llm-d reset --hard origin/main
-            fi
-            pip uninstall -y llmdbenchmark || true
-            rm -rf ~/work/llm-d-benchmark/
+
+          actual_sha=$(git -C "$LLMDBENCH_CICD_REPO_PATH" rev-parse HEAD)
+          echo "### Using llm-d checkout at \"$LLMDBENCH_CICD_REPO_PATH\""
+          echo "### Checked-out SHA: $actual_sha"
+          echo "### Workflow SHA: $GITHUB_SHA"
+          if [[ "$actual_sha" != "$GITHUB_SHA" ]]; then
+            echo "### ERROR: checked-out llm-d SHA does not match the workflow SHA"
+            exit 1
           fi
-          cd ~/work/llm-d/llm-d
-          echo "### llm-d code is present (GITHUB_REF_NAME=$GITHUB_REF_NAME, branch $(git branch --show-current))"
+
+          git -C "$LLMDBENCH_CICD_REPO_PATH" status --short --branch
+          pip uninstall -y llmdbenchmark || true
+          rm -rf "$HOME/work/llm-d-benchmark"
         shell: bash
 
       - name: Install llmdbenchmark
@@ -747,8 +741,8 @@ jobs:
           eval $lkcmd
           cat $LLMDBENCH_CICD_SCENARIO_FILE | yq '.scenario[0].kustomize.guideVariableOverrides.INFRA_PROVIDER'
           #
-          echo "### Setting \"REPO_ROOT\" to \"$HOME/work/llm-d/llm-d\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
-          lkcmd="yq -i \".scenario[0].kustomize.guideVariableOverrides.REPO_ROOT = \\\"$HOME/work/llm-d/llm-d\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
+          echo "### Setting \"REPO_ROOT\" to \"$LLMDBENCH_CICD_REPO_PATH\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
+          lkcmd="yq -i \".scenario[0].kustomize.guideVariableOverrides.REPO_ROOT = \\\"$LLMDBENCH_CICD_REPO_PATH\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
           echo -n "; $lkcmd" >> ~/work/lkcmd.txt
           eval $lkcmd
           cat $LLMDBENCH_CICD_SCENARIO_FILE | yq '.scenario[0].kustomize.guideVariableOverrides.REPO_ROOT'
@@ -802,8 +796,8 @@ jobs:
           echo -n "; $lkcmd" >> ~/work/lkcmd.txt
           eval $lkcmd
           cat $LLMDBENCH_CICD_SCENARIO_FILE | yq '.scenario[0].kustomize.guideName'
-          echo "### Setting \"repoPath\" to \"$HOME/work/llm-d/llm-d\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
-          lkcmd="yq -i \".scenario[0].kustomize.repoPath = \\\"$HOME/work/llm-d/llm-d\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
+          echo "### Setting \"repoPath\" to \"$LLMDBENCH_CICD_REPO_PATH\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
+          lkcmd="yq -i \".scenario[0].kustomize.repoPath = \\\"$LLMDBENCH_CICD_REPO_PATH\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
           echo -n "; $lkcmd" >> ~/work/lkcmd.txt
           eval $lkcmd
           cat $LLMDBENCH_CICD_SCENARIO_FILE | yq '.scenario[0].kustomize.repoPath'
@@ -832,11 +826,14 @@ jobs:
         id: prereqs_apply_overrides_to_kustomize_manifests
         if: env.LLMDBENCH_CICD_METHOD == 'kustomize'
         run: |
-          LLMDBENCH_CICD_KUSTOMIZE_PATH=~/work/llm-d/llm-d/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/$LLMDBENCH_CICD_ACCELERATOR/$LLMDBENCH_CICD_BACKEND/$LLMDBENCH_CICD_CONNECTOR/$LLMDBENCH_CICD_OFFLOADING_TARGET/$LLMDBENCH_CICD_INFRA_PROVIDER
+          LLMDBENCH_CICD_KUSTOMIZE_PATH="$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/$LLMDBENCH_CICD_ACCELERATOR/$LLMDBENCH_CICD_BACKEND/$LLMDBENCH_CICD_CONNECTOR/$LLMDBENCH_CICD_OFFLOADING_TARGET/$LLMDBENCH_CICD_INFRA_PROVIDER"
           echo "Kustomize full path is \"$LLMDBENCH_CICD_KUSTOMIZE_PATH\". Will now attempt to detect model name..."
-          detected_model=$(kubectl kustomize $LLMDBENCH_CICD_KUSTOMIZE_PATH | yq .spec.template.spec.containers[0].args | sed 's^--model-path=^^g' | grep -Ev "\- \--|\- '|\---|\- \||    \--|.*exec vllm|'|null|#|\"|find|START_RANK" | sed -e 's^ ^^g' -e 's|^-||g' -e 's^\\^^g' -e '/^$/d' | uniq || true)
+          echo "### llm-d source SHA: $(git -C "$LLMDBENCH_CICD_REPO_PATH" rev-parse HEAD)"
+          echo "### Rendered images:"
+          kubectl kustomize "$LLMDBENCH_CICD_KUSTOMIZE_PATH" | yq -r '.. | select(has("image")) | .image' | sort -u
+          detected_model=$(kubectl kustomize "$LLMDBENCH_CICD_KUSTOMIZE_PATH" | yq .spec.template.spec.containers[0].args | sed 's^--model-path=^^g' | grep -Ev "\- \--|\- '|\---|\- \||    \--|.*exec vllm|'|null|#|\"|find|START_RANK" | sed -e 's^ ^^g' -e 's|^-||g' -e 's^\\^^g' -e '/^$/d' | uniq || true)
           if [[ -z $detected_model ]]; then
-            detected_model=$(kubectl kustomize $LLMDBENCH_CICD_KUSTOMIZE_PATH |  yq .spec.leaderWorkerTemplate.workerTemplate.spec.containers[0].args | sed 's^--model-path=^^g' | grep -Ev "\- \--|\- '|\---|\- \||    \--|.*exec vllm|'|null|#|\"|find|START_RANK" | sed -e 's^ ^^g' -e 's|^-||g' -e 's^\\^^g' -e '/^$/d' | uniq || true)
+            detected_model=$(kubectl kustomize "$LLMDBENCH_CICD_KUSTOMIZE_PATH" | yq .spec.leaderWorkerTemplate.workerTemplate.spec.containers[0].args | sed 's^--model-path=^^g' | grep -Ev "\- \--|\- '|\---|\- \||    \--|.*exec vllm|'|null|#|\"|find|START_RANK" | sed -e 's^ ^^g' -e 's|^-||g' -e 's^\\^^g' -e '/^$/d' | uniq || true)
           fi
           if [[ -z $detected_model ]]; then
             echo "### ERROR: unable to detect model"
@@ -845,21 +842,21 @@ jobs:
           echo "### LLMDBENCH_CICD_DETECTED_MODEL is \"$detected_model\""
           echo "LLMDBENCH_CICD_DETECTED_MODEL=$detected_model"  >> $GITHUB_ENV
           if [[ $LLMDBENCH_CICD_SCENARIO == "predicted-latency-routing" || $LLMDBENCH_CICD_SCENARIO == "flow-control" ]]; then
-            find ~/work/llm-d/llm-d/$LLMDBENCH_CICD_SCENARIO_DIR/optimized-baseline/modelserver/ -type f -name "kustomization.yaml" -exec sed -i "s/optimized-baseline/$LLMDBENCH_CICD_SCENARIO/g" {} \;
-            find ~/work/llm-d/llm-d/$LLMDBENCH_CICD_SCENARIO_DIR/optimized-baseline/modelserver/ -type f -name "kustomization.yaml" -exec bash -c 'echo -n $1:; yq ".namePrefix" $1' _ {} \;
-            find ~/work/llm-d/llm-d/$LLMDBENCH_CICD_SCENARIO_DIR/optimized-baseline/modelserver/ -type f -name "patch-vllm.yaml" -exec sed -i "s/optimized-baseline/$LLMDBENCH_CICD_SCENARIO/g" {} \;
-            find ~/work/llm-d/llm-d/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/$LLMDBENCH_CICD_CONNECTOR/router/ -type f -name "*.yaml" -exec sed -i "s/optimized-baseline/$LLMDBENCH_CICD_SCENARIO/g" {} \;
+            find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/optimized-baseline/modelserver/" -type f -name "kustomization.yaml" -exec sed -i "s/optimized-baseline/$LLMDBENCH_CICD_SCENARIO/g" {} \;
+            find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/optimized-baseline/modelserver/" -type f -name "kustomization.yaml" -exec bash -c 'echo -n $1:; yq ".namePrefix" $1' _ {} \;
+            find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/optimized-baseline/modelserver/" -type f -name "patch-vllm.yaml" -exec sed -i "s/optimized-baseline/$LLMDBENCH_CICD_SCENARIO/g" {} \;
+            find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/$LLMDBENCH_CICD_CONNECTOR/router/" -type f -name "*.yaml" -exec sed -i "s/optimized-baseline/$LLMDBENCH_CICD_SCENARIO/g" {} \;
           fi
           echo "### Setting priority class \"$LLMDBENCH_CICD_PRIORITY_CLASS\" on scenario \"$LLMDBENCH_CICD_SCENARIO\""
           for i in vllm decode prefill; do
-            find ~/work/llm-d/llm-d/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/ -type f -name "patch-$i.yaml" -exec yq ".spec.template.spec.priorityClassName=\"$LLMDBENCH_CICD_PRIORITY_CLASS\"" -i {} \;
-            find ~/work/llm-d/llm-d/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/ -type f -name "patch-$i.yaml" -exec bash -c 'echo -n $1:; yq ".spec.template.spec.priorityClassName" $1' _ {} \;
+            find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/" -type f -name "patch-$i.yaml" -exec yq ".spec.template.spec.priorityClassName=\"$LLMDBENCH_CICD_PRIORITY_CLASS\"" -i {} \;
+            find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/" -type f -name "patch-$i.yaml" -exec bash -c 'echo -n $1:; yq ".spec.template.spec.priorityClassName" $1' _ {} \;
           done
           if [[ $LLMDBENCH_CICD_DECODE_PODS != "auto" ]]; then
             echo "### Setting decode pods to \"$LLMDBENCH_CICD_DECODE_PODS\" on scenario \"$LLMDBENCH_CICD_SCENARIO\""
             for i in vllm decode; do
-              find ~/work/llm-d/llm-d/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/ -type f -name "patch-$i.yaml" -exec yq ".spec.replicas=$LLMDBENCH_CICD_DECODE_PODS" -i {} \;
-              find ~/work/llm-d/llm-d/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/ -type f -name "patch-$i.yaml" -exec bash -c 'echo -n $1:; yq ".spec.replicas" $1' _ {} \;
+              find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/" -type f -name "patch-$i.yaml" -exec yq ".spec.replicas=$LLMDBENCH_CICD_DECODE_PODS" -i {} \;
+              find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/" -type f -name "patch-$i.yaml" -exec bash -c 'echo -n $1:; yq ".spec.replicas" $1' _ {} \;
             done
           fi
           if [[ $LLMDBENCH_CICD_PREFILL_PODS != "auto" ]]; then
@@ -1139,7 +1136,7 @@ jobs:
           elif [ "${{ steps.prereq_install_oc.outcome }}" = "failure" ] || \
                [ "${{ steps.prereq_install_yq.outcome }}" = "failure" ] || \
                [ "${{ steps.prereq_set_gcs_full_path.outcome }}" = "failure" ] || \
-               [ "${{ steps.prereq_conditionally_clone_llmd.outcome }}" = "failure" ] || \
+               [ "${{ steps.prereq_prepare_llmd.outcome }}" = "failure" ] || \
                [ "${{ steps.prereq_install_llmdbenchmark.outcome }}" = "failure" ] || \
                [ "${{ steps.prereqs_apply_overrides_to_llmdbenchmark_scenarios.outcome }}" = "failure" ] || \
                [ "${{ steps.prereqs_set_harness_executable.outcome }}" = "failure" ] || \
