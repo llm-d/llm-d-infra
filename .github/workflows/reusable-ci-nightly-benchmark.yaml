@@ -142,7 +142,7 @@ on:
         default: 'false'
         type: 'string'
       harness:
-        description: 'Harness to be used during "run" operation ("inference-perf", "guidellm", "inferencemax", "vllm-benchmark", "nop")'
+        description: 'Harness to be used during "run" operation ("inference-perf", "guidellm", "inferencemax", "vllm-benchmark", "eval-containers", "nop")'
         required: false
         default: 'inference-perf'
         type: 'string'
@@ -156,6 +156,16 @@ on:
         required: false
         default: 'true'
         type: string
+      cluster_config:
+        description: 'Cluster-config file supplying target-cluster values (storage class, service account, runAsUser). Relative to the llm-d-benchmark checkout. Empty means the scenario values are used as-is.'
+        required: false
+        default: ''
+        type: 'string'
+      tasks:
+        description: 'Number of parallel harness tasks ("-j"). Empty means the harness default. Used by agentic eval harnesses that fan out one pod per task.'
+        required: false
+        default: ''
+        type: 'string'
       tpu_topology:
         description: 'GKE TPU topology (e.g. 2x4, 2x2x1)'
         required: false
@@ -375,6 +385,8 @@ jobs:
       LLMDBENCH_MONITORING_ENABLED: ${{ inputs.monitoring_enabled || 'true' }}
       LLMDBENCH_CICD_HARNESS: ${{ inputs.harness || 'inference-perf' }}
       LLMDBENCH_CICD_WORKLOAD: ${{ inputs.workload || 'sanity_random.yaml' }}
+      LLMDBENCH_CICD_CLUSTER_CONFIG: ${{ inputs.cluster_config }}
+      LLMDBENCH_CICD_TASKS: ${{ inputs.tasks }}
       LLMDBENCH_CICD_PRIORITY_CLASS: nightly-llm-d-cicd-critical
       LLMDBENCH_CICD_PERSISTENT_MODEL: ${{ inputs.persistent_model || 'false' }}
       LLMDBENCH_CICD_DEEP_CLEANING: ${{ inputs.deep_cleaning || 'false' }}
@@ -963,6 +975,20 @@ jobs:
             export LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD="--kustomize-deploy-timeout $LLMDBENCH_CICD_KUSTOMIZE_STANDUP_TIMEOUT --modelservice-deploy-timeout $LLMDBENCH_CICD_MODELSERVICE_STANDUP_TIMEOUT --standalone-deploy-timeout $LLMDBENCH_CICD_STANDALONE_STANDUP_TIMEOUT $LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD "
           fi
           export LLMDBENCH_EXTRA_RUN_OPERATION_CMD="--wait-timeout $LLMDBENCH_CICD_RUN_WAIT_TIMEOUT --pvc-bind-timeout $LLMDBENCH_CICD_RUN_PVC_BIND_TIMEOUT --data-access-timeout $LLMDBENCH_CICD_DATA_ACCESS_TIMEOUT $LLMDBENCH_EXTRA_RUN_OPERATION_CMD "
+
+          # Cluster-config supplies target-cluster values (storage class, service
+          # account, runAsUser) that cluster-generic scenarios leave unset. Applies
+          # to both standup and run so the two agree on the same overrides.
+          if [[ -n "$LLMDBENCH_CICD_CLUSTER_CONFIG" ]]; then
+            export LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD="--cluster-config $LLMDBENCH_CICD_CLUSTER_CONFIG $LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD "
+            export LLMDBENCH_EXTRA_RUN_OPERATION_CMD="--cluster-config $LLMDBENCH_CICD_CLUSTER_CONFIG $LLMDBENCH_EXTRA_RUN_OPERATION_CMD "
+          fi
+
+          # "-j" fans the harness out into N parallel task pods. Only meaningful on
+          # run; harnesses that ignore parallelism are unaffected when this is empty.
+          if [[ -n "$LLMDBENCH_CICD_TASKS" ]]; then
+            export LLMDBENCH_EXTRA_RUN_OPERATION_CMD="-j $LLMDBENCH_CICD_TASKS $LLMDBENCH_EXTRA_RUN_OPERATION_CMD "
+          fi
           if [[ ! -z $LLMDBENCH_CICD_DETECTED_MODEL ]]; then
             export LLMDBENCH_EXTRA_RUN_OPERATION_CMD="--model $LLMDBENCH_CICD_DETECTED_MODEL $LLMDBENCH_EXTRA_RUN_OPERATION_CMD "
           fi
