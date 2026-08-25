@@ -190,6 +190,7 @@ on:
         type: string
         default: 'llm-d/llm-d'
 
+jobs:
   skip-v7-warning:
     name: Skip TPU v7 Run
     runs-on: ubuntu-latest
@@ -260,11 +261,13 @@ on:
           kubectl cluster-info
 
       - name: Request TPUs (DWS)
+        id: infra_request_tpus
         if: inputs.tpu_chips > 0
         run: |
           CHIPS_TO_REQUEST="${{ inputs.tpu_chips }}"
 
           kubectl create namespace "$NAMESPACE" || echo "Namespace already exists"
+          kubectl delete job tpu-request-job -n "$NAMESPACE" --ignore-not-found
 
           ACCELERATOR="$TPU_TYPE"
           TOPOLOGY="$TPU_TOPOLOGY"
@@ -326,9 +329,6 @@ on:
             -n "$NAMESPACE" \
             --timeout=45m
 
-          # Release the chips so test can use them
-          kubectl delete job tpu-request-job -n "$NAMESPACE"
-
           # Export topology and accelerator so subsequent steps (like scenario overrides) can read them
           echo "TPU_ACCELERATOR=$ACCELERATOR" >> $GITHUB_ENV
           echo "TPU_TOPOLOGY=$TOPOLOGY" >> $GITHUB_ENV
@@ -340,6 +340,12 @@ on:
           echo "| TPU Accelerator | $ACCELERATOR |" >> $GITHUB_STEP_SUMMARY
           echo "| TPU Topology | $TOPOLOGY |" >> $GITHUB_STEP_SUMMARY
           echo "| Requested Chips | $CHIPS_TO_REQUEST |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Release TPU Request Job
+        id: infra_release_tpus
+        if: always() && steps.infra_request_tpus.outcome != 'skipped'
+        run: |
+          kubectl delete job tpu-request-job -n "$NAMESPACE" --ignore-not-found
 
       - name: Clean up previous nightly resources
         run: |
