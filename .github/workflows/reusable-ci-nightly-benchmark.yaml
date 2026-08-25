@@ -29,12 +29,12 @@ on:
         type: 'string'
         default: 'auto'
       accelerator_type:
-        description: 'Type of accelerator (gpu, cpu, sim, amd, xpu, tpu/v6, tpu/v7) (ONLY VALID FOR "kustomize" standyp method)'
+        description: 'Type of accelerator (gpu, cpu, sim, amd, xpu, tpu/v6, tpu/v7) (ONLY VALID FOR "kustomize" standup method)'
         required: false
         type: 'string'
         default: 'gpu'
       backend_type:
-        description: 'Type of backend (vllm, sglang) (ONLY VALID FOR "kustomize" standyp method)'
+        description: 'Type of backend (vllm, sglang) (ONLY VALID FOR "kustomize" standup method)'
         required: false
         type: 'string'
         default: 'vllm'
@@ -44,7 +44,7 @@ on:
         type: 'string'
         default: 'base'
       offloading_target:
-        description: 'Which component should be used to hous offloaded blocks ("cpu","memory", default is "")'
+        description: 'Which component should be used to house offloaded blocks ("cpu","memory", default is "")'
         required: false
         type: 'string'
         default: ''
@@ -226,6 +226,11 @@ on:
         required: false
         default: 'false'
         type: 'string'
+      matrix_type:
+        description: 'Will this workflow be part of a "nightly" (default) run or "release-X.Y.Z[rc]" run?'
+        required: false
+        default: 'nightly'
+        type: 'string'
     outputs:
       failure_category:
         description: 'Category of the first failed step (prepare, prereqs, infra, guide, benchmark)'
@@ -240,7 +245,7 @@ on:
 
 jobs:
   ensure-nightly-build-image:
-    name: Ensure Nightly Build  Image
+    name: Ensure Nightly Build Image
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -277,27 +282,27 @@ jobs:
       - name: set cluster_type variable based on workflow and scenario name
         id: prepare_set_cluster_provider
         run: |
-          IS_OCP=$(echo "${{ github.workflow }}" | grep -i "\ocp" || true)$(echo "${{ inputs.standup_scenario }}" | grep -i "ocp" || true)
+          IS_OCP=$(echo "${{ github.workflow }}" | grep -i "ocp" || true)$(echo "${{ inputs.standup_scenario }}" | grep -i "ocp" || true)
           if [[ ! -z $IS_OCP ]]; then
             export CLUSTER_TYPE=ocp
           fi
-          IS_GKE=$(echo "${{ github.workflow }}" | grep -i "\gke" || true)$(echo "${{ inputs.standup_scenario }}" | grep -i "gke" || true)
+          IS_GKE=$(echo "${{ github.workflow }}" | grep -i "gke" || true)$(echo "${{ inputs.standup_scenario }}" | grep -i "gke" || true)
           if [[ ! -z $IS_GKE ]]; then
             export CLUSTER_TYPE=gke
           fi
-          IS_CKS=$(echo "${{ github.workflow }}" | grep -i "\cks" || true)$(echo "${{ inputs.standup_scenario }}" | grep -i "cks" || true)
+          IS_CKS=$(echo "${{ github.workflow }}" | grep -i "cks" || true)$(echo "${{ inputs.standup_scenario }}" | grep -i "cks" || true)
           if [[ ! -z $IS_CKS ]]; then
             export CLUSTER_TYPE=cks
           fi
-          IS_KIND=$(echo "${{ github.workflow }}" | grep -i "\kind" || true)$(echo "${{ inputs.standup_scenario }}" | grep -i "kind" || true)
+          IS_KIND=$(echo "${{ github.workflow }}" | grep -i "kind" || true)$(echo "${{ inputs.standup_scenario }}" | grep -i "kind" || true)
           if [[ ! -z $IS_KIND ]]; then
             export CLUSTER_TYPE=kind
           fi
-          IS_ROCM=$(echo "${{ github.workflow }}" | grep -i "\rocm" || true)$(echo "${{ inputs.standup_scenario }}" | grep -i "rocm" || true)
+          IS_ROCM=$(echo "${{ github.workflow }}" | grep -i "rocm" || true)$(echo "${{ inputs.standup_scenario }}" | grep -i "rocm" || true)
           if [[ ! -z $IS_ROCM ]]; then
             export CLUSTER_TYPE=rocm
           fi
-          IS_XPU=$(echo "${{ github.workflow }}" | grep -i "\xpu" || true)$(echo "${{ inputs.standup_scenario }}" | grep -i "xpu" || true)
+          IS_XPU=$(echo "${{ github.workflow }}" | grep -i "xpu" || true)$(echo "${{ inputs.standup_scenario }}" | grep -i "xpu" || true)
           if [[ ! -z $IS_XPU ]]; then
             export CLUSTER_TYPE=xpu
           fi
@@ -310,16 +315,16 @@ jobs:
         run: |
           echo "Cluster provider is \"$CLUSTER_TYPE\""
           if [[ "$CLUSTER_TYPE" == "ocp" ]]; then
-            echo "Targetting self-hosted runners (OpenShift)"
+            echo "Targeting self-hosted runners (OpenShift)"
             RUNNERS_JSON_LIST='["self-hosted", "openshift", "pok-prod"]'
           elif [[ "$CLUSTER_TYPE" == "rocm" ]]; then
-            echo "Targetting self-hosted runners (AMD/CI)"
+            echo "Targeting self-hosted runners (AMD/CI)"
             RUNNERS_JSON_LIST='["rocm"]'
           elif [[ "$CLUSTER_TYPE" == "xpu" ]]; then
-            echo "Targetting self-hosted runners (Intel/CI)"
+            echo "Targeting self-hosted runners (Intel/CI)"
             RUNNERS_JSON_LIST='["xpu"]'
           else
-            echo "Targetting hosted runners (non-OpenShift)"
+            echo "Targeting hosted runners (non-OpenShift)"
             RUNNERS_JSON_LIST='["ubuntu-latest"]'
           fi
           echo "Runners list is \"$RUNNERS_JSON_LIST\""
@@ -347,7 +352,7 @@ jobs:
     timeout-minutes: 240
     outputs:
       failure_category: ${{ steps.detect_failure.outputs.failure_category }}
-
+      matrix_type: ${{ steps.prereq_prepare_repositories.outputs.matrix_type }}
     env:
       LLMDBENCH_CICD_NS: ${{ inputs.cluster_namespace || 'llmdbenchcicd' }}
       LLMDBENCH_CICD_R: ${{ inputs.helm_release || 'standalone' }}
@@ -391,6 +396,7 @@ jobs:
       LLMDBENCH_CICD_PERSISTENT_MODEL: ${{ inputs.persistent_model || 'false' }}
       LLMDBENCH_CICD_DEEP_CLEANING: ${{ inputs.deep_cleaning || 'false' }}
       LLMDBENCH_CICD_ADMIN_PRIVILEGES: ${{ inputs.admin_privileges || 'false' }}
+      LLMDBENCH_CICD_MATRIX_TYPE: ${{ inputs.matrix_type || 'nightly' }}
       GCS_BASE_PATH: ${{ inputs.bucket_path || 'llm-d-benchmarks/regressions' }}
       GCP_PROJECT_ID: ${{ inputs.bucket_project || 'llm-d-scale' }}
       GKE_CLUSTER_NAME: ${{ inputs.cluster_name || 'llm-d-e2e-us-east5' }}
@@ -736,10 +742,17 @@ jobs:
           echo "### llm-d source: $llmd_repo_path ($(git -C "$llmd_repo_path" rev-parse HEAD))"
           echo "### llm-d-benchmark source: $benchmark_repo_path ($(git -C "$benchmark_repo_path" rev-parse HEAD))"
           command_log="$RUNNER_TEMP/lkcmd.txt"
+
+          if [[ $LLMDBENCH_CICD_MATRIX_TYPE != "nightly" && "$caller_repo_name" == "llm-d" ]]; then
+            cd $llmd_repo_path
+            git checkout $LLMDBENCH_CICD_MATRIX_TYPE
+          fi
+
           echo "LLMDBENCH_CICD_REPO_PATH=$llmd_repo_path" >> "$GITHUB_ENV"
           echo "LLMDBENCH_CICD_BENCHMARK_PATH=$benchmark_repo_path" >> "$GITHUB_ENV"
           echo "LLMDBENCH_CICD_CMD_LOG=$command_log" >> "$GITHUB_ENV"
           : > "$command_log"
+          echo "matrix_type=$LLMDBENCH_CICD_MATRIX_TYPE" >> $GITHUB_OUTPUT
         shell: bash
 
       - name: Install llmdbenchmark

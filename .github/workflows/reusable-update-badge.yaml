@@ -25,6 +25,11 @@ on:
         required: false
         type: string
         default: ''
+      matrix_type:
+        description: 'Will this workflow be part of a "nightly" (default) run or "release-X.Y.Z[rc]" run?'
+        required: false
+        default: 'nightly'
+        type: string
 
 jobs:
   update-badge:
@@ -127,7 +132,7 @@ jobs:
       - name: Write badge file
         run: |
           mkdir -p badges
-          cat > "badges/${{ inputs.badge_name }}.json" <<EOF
+          cat > "badges/${{ inputs.badge_name }}_${{ inputs.matrix_type }}.json" <<EOF
           {
             "schemaVersion": 1,
             "label": "${{ inputs.badge_label }}",
@@ -141,5 +146,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add badges/
-          git diff --staged --quiet || git commit -m "badge: update ${{ inputs.badge_name }} (${{ steps.badge.outputs.message }})"
+          git diff --staged --quiet || git commit -m "badge: update ${{ inputs.badge_name }}_${{ inputs.matrix_type }} (${{ steps.badge.outputs.message }})"
           git push
