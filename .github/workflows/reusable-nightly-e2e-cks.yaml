@@ -183,6 +183,11 @@ on:
         required: false
         type: string
         default: 'llm-d/llm-d'
+      matrix_type:
+        description: 'Will this workflow be part of a "nightly" (default) run or "release-X.Y.Z[rc]" run?'
+        required: false
+        default: 'nightly'
+        type: string
 
 jobs:
   nightly-e2e:
