@@ -129,10 +129,19 @@ jobs:
         with:
           ref: gh-pages
 
+      - name: Determine badge file name
+        run: |
+          if [[ "${{ inputs.matrix_type }}" != "nightly" ]]; then
+            badge_file_name="${{ inputs.badge_name }}_${{ inputs.matrix_type }}"
+          else
+            badge_file_name="${{ inputs.badge_name }}"
+          fi
+          echo "badge_file_name=$badge_file_name" >> "$GITHUB_ENV"
+
       - name: Write badge file
         run: |
           mkdir -p badges
-          cat > "badges/${{ inputs.badge_name }}_${{ inputs.matrix_type }}.json" <<EOF
+          cat > "badges/${badge_file_name}.json" <<EOF
           {
             "schemaVersion": 1,
             "label": "${{ inputs.badge_label }}",
@@ -146,5 +155,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add badges/
-          git diff --staged --quiet || git commit -m "badge: update ${{ inputs.badge_name }}_${{ inputs.matrix_type }} (${{ steps.badge.outputs.message }})"
+          git diff --staged --quiet || git commit -m "badge: update $badge_file_name (${{ steps.badge.outputs.message }})"
           git push
