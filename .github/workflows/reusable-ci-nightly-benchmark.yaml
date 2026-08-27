@@ -155,7 +155,7 @@ on:
         description: 'Cleanup the llm-d stack stood up by this workflow'
         required: false
         default: 'true'
-        type: string
+        type: 'string'
       cluster_config:
         description: 'Cluster-config file supplying target-cluster values (storage class, service account, runAsUser). Relative to the llm-d-benchmark checkout. Empty means the scenario values are used as-is.'
         required: false
@@ -231,11 +231,18 @@ on:
         required: false
         default: 'nightly'
         type: 'string'
+      harness_resources:
+        description: 'CPU/Memory limits for the harness pod running llm-d-benchmark workloads (default 32/64Gi)'
+        required: false
+        default: '32/64Gi'
+        type: 'string'
     outputs:
       failure_category:
         description: 'Category of the first failed step (prepare, prereqs, infra, guide, benchmark)'
         value: ${{ jobs.benchmark.outputs.failure_category }}
-
+      matrix_type:
+        description: 'Release matrix type'
+        value: ${{ jobs.benchmark.outputs.matrix_type }}
 #  push:
 #    branches:
 #      - main
@@ -397,6 +404,7 @@ jobs:
       LLMDBENCH_CICD_DEEP_CLEANING: ${{ inputs.deep_cleaning || 'false' }}
       LLMDBENCH_CICD_ADMIN_PRIVILEGES: ${{ inputs.admin_privileges || 'false' }}
       LLMDBENCH_CICD_MATRIX_TYPE: ${{ inputs.matrix_type || 'nightly' }}
+      LLMDBENCH_CICD_HARNESS_RESOURCES: ${{ inputs.harness_resources || '32/64Gi' }}
       GCS_BASE_PATH: ${{ inputs.bucket_path || 'llm-d-benchmarks/regressions' }}
       GCP_PROJECT_ID: ${{ inputs.bucket_project || 'llm-d-scale' }}
       GKE_CLUSTER_NAME: ${{ inputs.cluster_name || 'llm-d-e2e-us-east5' }}
@@ -960,9 +968,9 @@ jobs:
             done
           fi
           if [[ $LLMDBENCH_CICD_PREFILL_PODS != "auto" ]]; then
-            echo "### Setting decode pods to \"$LLMDBENCH_CICD_PREFILL_PODS\" on scenario \"$LLMDBENCH_CICD_SCENARIO\""
+            echo "### Setting prefill pods to \"$LLMDBENCH_CICD_PREFILL_PODS\" on scenario \"$LLMDBENCH_CICD_SCENARIO\""
             for i in prefill; do
-              find $LLMDBENCH_CICD_KUSTOMIZE_PATH -type f -name "patch-$i.yaml" -exec yq ".spec.replicas=$LLMDBENCH_CICD_DECODE_PODS" -i {} \;
+              find $LLMDBENCH_CICD_KUSTOMIZE_PATH -type f -name "patch-$i.yaml" -exec yq ".spec.replicas=$LLMDBENCH_CICD_PREFILL_PODS" -i {} \;
               find $LLMDBENCH_CICD_KUSTOMIZE_PATH -type f -name "patch-$i.yaml" -exec bash -c 'echo -n $1:; yq ".spec.replicas" $1' _ {} \;
             done
           fi
@@ -975,11 +983,12 @@ jobs:
           export LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD=""
           export LLMDBENCH_EXTRA_RUN_OPERATION_CMD=""
           export LLMDBENCH_EXTRA_TEARDOWN_OPERATION_CMD=""
+
           if [[ "$LLMDBENCH_CICD_METHOD" == "kustomize" || "$LLMDBENCH_CICD_ADMIN_PRIVILEGES" == "false" ]]; then
-            export LLMDBENCH_EXTRA_CMD="--non-admin"
+            export LLMDBENCH_EXTRA_CMD="--non-admin $LLMDBENCH_EXTRA_CMD "
           fi
           if [[ "$LLMDBENCH_IS_DRY_RUN" == "true" ]]; then
-            export LLMDBENCH_EXTRA_CMD="--dry-run"
+            export LLMDBENCH_EXTRA_CMD="--dry-run $LLMDBENCH_EXTRA_CMD "
           fi
           if [[ "$LLMDBENCH_IS_VERBOSE" == "true" ]]; then
             export LLMDBENCH_EXTRA_CMD="--verbose $LLMDBENCH_EXTRA_CMD "
@@ -988,6 +997,11 @@ jobs:
             export LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD="--kustomize-deploy-timeout $LLMDBENCH_CICD_KUSTOMIZE_STANDUP_TIMEOUT --modelservice-deploy-timeout $LLMDBENCH_CICD_MODELSERVICE_STANDUP_TIMEOUT --standalone-deploy-timeout $LLMDBENCH_CICD_STANDALONE_STANDUP_TIMEOUT $LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD "
           fi
           export LLMDBENCH_EXTRA_RUN_OPERATION_CMD="--wait-timeout $LLMDBENCH_CICD_RUN_WAIT_TIMEOUT --pvc-bind-timeout $LLMDBENCH_CICD_RUN_PVC_BIND_TIMEOUT --data-access-timeout $LLMDBENCH_CICD_DATA_ACCESS_TIMEOUT $LLMDBENCH_EXTRA_RUN_OPERATION_CMD "
+
+          hcpu=$(echo "$LLMDBENCH_CICD_HARNESS_RESOURCES" | cut -d '/' -f 1)
+          hmem=$(echo "$LLMDBENCH_CICD_HARNESS_RESOURCES" | cut -d '/' -f 2)
+          export LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD="--set harness.resources.cpu=$hcpu --set harness.resources.memory=$hmem $LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD "
+          export LLMDBENCH_EXTRA_RUN_OPERATION_CMD="--set harness.resources.cpu=$hcpu --set harness.resources.memory=$hmem $LLMDBENCH_EXTRA_RUN_OPERATION_CMD "
 
           # Cluster-config supplies target-cluster values (storage class, service
           # account, runAsUser) that cluster-generic scenarios leave unset. Applies
