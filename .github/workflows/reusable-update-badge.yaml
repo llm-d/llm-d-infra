@@ -26,7 +26,7 @@ on:
         type: string
         default: ''
       matrix_type:
-        description: 'Will this workflow be part of a "nightly" (default) run or "release-X.Y.Z[rc]" run?'
+        description: 'Will this workflow be part of a "nightly" (default) run or "release-X.Y" run?'
         required: false
         default: 'nightly'
         type: string
