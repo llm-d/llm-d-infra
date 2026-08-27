@@ -131,7 +131,8 @@ jobs:
 
       - name: Determine badge file name
         run: |
-          if [[ "${{ inputs.matrix_type }}" != "nightly" ]]; then
+            mt="${{ inputs.matrix_type }}"
+            if [[ -n "$mt" && "$mt" != "nightly" ]]; then
             badge_file_name="${{ inputs.badge_name }}_${{ inputs.matrix_type }}"
           else
             badge_file_name="${{ inputs.badge_name }}"
