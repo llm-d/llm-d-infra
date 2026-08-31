@@ -57,5 +57,5 @@ All skills redirect CI logs and kubectl output to files under `/tmp/llm-d/nightl
 |------|----------|
 | `reusable-nightly-e2e-openshift.yaml` | OpenShift (WVA) |
 | `reusable-nightly-e2e-openshift-helmfile.yaml` | OpenShift (helmfile) |
-| `reusable-nightly-e2e-gke-helmfile.yaml` | GKE (helmfile) |
-| `reusable-nightly-e2e-cks-helmfile.yaml` | CKS/CoreWeave (helmfile) |
+| `reusable-nightly-e2e-gke.yaml` | GKE |
+| `reusable-nightly-e2e-cks.yaml` | CKS/CoreWeave |
