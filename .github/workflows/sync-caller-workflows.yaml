@@ -74,12 +74,14 @@ jobs:
           FAIL_COUNT=0
 
           # Step summary header
-          echo "## gh-aw Workflow Sync Report" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Source: [\`llm-d/llm-d-infra@${COMMIT_SHA}\`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Repo | Status | Details |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|------|--------|---------|" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## gh-aw Workflow Sync Report"
+            echo ""
+            echo "Source: [\`llm-d/llm-d-infra@${COMMIT_SHA}\`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})"
+            echo ""
+            echo "| Repo | Status | Details |"
+            echo "|------|--------|---------|"
+          } >> "$GITHUB_STEP_SUMMARY"
 
           while IFS= read -r repo; do
             [ -z "$repo" ] && continue
