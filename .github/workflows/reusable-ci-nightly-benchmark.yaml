@@ -291,27 +291,27 @@ jobs:
         id: prepare_set_cluster_provider
         run: |
           IS_OCP=$(echo "${{ github.workflow }}" | grep -i "ocp" || true)$(echo "${{ inputs.standup_scenario }}" | grep -i "ocp" || true)
-          if [[ ! -z $IS_OCP ]]; then
+          if [[ -n $IS_OCP ]]; then
             export CLUSTER_TYPE=ocp
           fi
           IS_GKE=$(echo "${{ github.workflow }}" | grep -i "gke" || true)$(echo "${{ inputs.standup_scenario }}" | grep -i "gke" || true)
-          if [[ ! -z $IS_GKE ]]; then
+          if [[ -n $IS_GKE ]]; then
             export CLUSTER_TYPE=gke
           fi
           IS_CKS=$(echo "${{ github.workflow }}" | grep -i "cks" || true)$(echo "${{ inputs.standup_scenario }}" | grep -i "cks" || true)
-          if [[ ! -z $IS_CKS ]]; then
+          if [[ -n $IS_CKS ]]; then
             export CLUSTER_TYPE=cks
           fi
           IS_KIND=$(echo "${{ github.workflow }}" | grep -i "kind" || true)$(echo "${{ inputs.standup_scenario }}" | grep -i "kind" || true)
-          if [[ ! -z $IS_KIND ]]; then
+          if [[ -n $IS_KIND ]]; then
             export CLUSTER_TYPE=kind
           fi
           IS_ROCM=$(echo "${{ github.workflow }}" | grep -i "rocm" || true)$(echo "${{ inputs.standup_scenario }}" | grep -i "rocm" || true)
-          if [[ ! -z $IS_ROCM ]]; then
+          if [[ -n $IS_ROCM ]]; then
             export CLUSTER_TYPE=rocm
           fi
           IS_XPU=$(echo "${{ github.workflow }}" | grep -i "xpu" || true)$(echo "${{ inputs.standup_scenario }}" | grep -i "xpu" || true)
-          if [[ ! -z $IS_XPU ]]; then
+          if [[ -n $IS_XPU ]]; then
             export CLUSTER_TYPE=xpu
           fi
           echo "Cluster provider is \"$CLUSTER_TYPE\""
@@ -506,10 +506,10 @@ jobs:
         run: |
           echo "### Attempting to list cluster names..."
           if [[ -f ~/.kube/config ]]; then
-            echo "### Cluster names (from \"~/.kube/config\") : $(cat ~/.kube/config | yq ".clusters[].name" | sed ':a;N;$!ba;s/\n/, /g')"
+            echo "### Cluster names (from \"~/.kube/config\") : $(yq ".clusters[].name" ~/.kube/config | sed ':a;N;$!ba;s/\n/, /g')"
           fi
-          if [[ ! -z $KUBECONFIG ]]; then
-            echo "### Cluster names (from \"$KUBECONFIG\") : $(cat "$KUBECONFIG" | yq ".clusters[].name" | sed ':a;N;$!ba;s/\n/, /g')"
+          if [[ -n $KUBECONFIG ]]; then
+            echo "### Cluster names (from \"$KUBECONFIG\") : $(yq ".clusters[].name" "$KUBECONFIG" | sed ':a;N;$!ba;s/\n/, /g')"
           fi
         shell: bash
 
@@ -820,110 +820,110 @@ jobs:
           lkcmd="yq -i \".scenario[0].kustomize.guideVariableOverrides.INFRA_PROVIDER = \\\"$LLMDBENCH_CICD_INFRA_PROVIDER\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
           echo -n "$lkcmd" > "$LLMDBENCH_CICD_CMD_LOG"
           eval "$lkcmd"
-          cat "$LLMDBENCH_CICD_SCENARIO_FILE" | yq '.scenario[0].kustomize.guideVariableOverrides.INFRA_PROVIDER'
+          yq '.scenario[0].kustomize.guideVariableOverrides.INFRA_PROVIDER' "$LLMDBENCH_CICD_SCENARIO_FILE"
           #
           echo "### Setting \"REPO_ROOT\" to \"$LLMDBENCH_CICD_REPO_PATH\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
           lkcmd="yq -i \".scenario[0].kustomize.guideVariableOverrides.REPO_ROOT = \\\"$LLMDBENCH_CICD_REPO_PATH\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
           echo -n "; $lkcmd" >> "$LLMDBENCH_CICD_CMD_LOG"
           eval "$lkcmd"
-          cat "$LLMDBENCH_CICD_SCENARIO_FILE" | yq '.scenario[0].kustomize.guideVariableOverrides.REPO_ROOT'
+          yq '.scenario[0].kustomize.guideVariableOverrides.REPO_ROOT' "$LLMDBENCH_CICD_SCENARIO_FILE"
           #
           echo "### Setting \"GUIDE_NAME\" to \"$LLMDBENCH_CICD_EFFECTIVE_GUIDE_NAME\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
           lkcmd="yq -i \".scenario[0].kustomize.guideVariableOverrides.GUIDE_NAME = \\\"$LLMDBENCH_CICD_EFFECTIVE_GUIDE_NAME\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
           echo -n "; $lkcmd" >> "$LLMDBENCH_CICD_CMD_LOG"
           eval "$lkcmd"
-          cat "$LLMDBENCH_CICD_SCENARIO_FILE" | yq '.scenario[0].kustomize.guideVariableOverrides.GUIDE_NAME'
+          yq '.scenario[0].kustomize.guideVariableOverrides.GUIDE_NAME' "$LLMDBENCH_CICD_SCENARIO_FILE"
           #
           echo "### Setting \"GATEWAY_API_VERSION\" to \"$LLMDBENCH_CICD_GATEWAY_API_VERSION\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
           lkcmd="yq -i \".scenario[0].kustomize.guideVariableOverrides.GATEWAY_API_VERSION = \\\"$LLMDBENCH_CICD_GATEWAY_API_VERSION\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
           echo -n "; $lkcmd" >> "$LLMDBENCH_CICD_CMD_LOG"
           eval "$lkcmd"
-          cat "$LLMDBENCH_CICD_SCENARIO_FILE" | yq '.scenario[0].kustomize.guideVariableOverrides.GATEWAY_API_VERSION'
+          yq '.scenario[0].kustomize.guideVariableOverrides.GATEWAY_API_VERSION' "$LLMDBENCH_CICD_SCENARIO_FILE"
           #
           echo "### Setting \"GATEWAY_API_URL\" to \"$LLMDBENCH_CICD_GATEWAY_API_URL\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
           lkcmd="yq -i \".scenario[0].kustomize.guideVariableOverrides.GATEWAY_API_URL = \\\"$LLMDBENCH_CICD_GATEWAY_API_URL\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
           echo -n "; $lkcmd" >> "$LLMDBENCH_CICD_CMD_LOG"
           eval "$lkcmd"
-          cat "$LLMDBENCH_CICD_SCENARIO_FILE" | yq '.scenario[0].kustomize.guideVariableOverrides.GATEWAY_API_URL'
+          yq '.scenario[0].kustomize.guideVariableOverrides.GATEWAY_API_URL' "$LLMDBENCH_CICD_SCENARIO_FILE"
           #
           echo "### Setting \"GAIE_VERSION\" to \"$LLMDBENCH_CICD_GAIE_VERSION\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
           lkcmd="yq -i \".scenario[0].kustomize.guideVariableOverrides.GAIE_VERSION = \\\"$LLMDBENCH_CICD_GAIE_VERSION\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
           echo -n "; $lkcmd" >> "$LLMDBENCH_CICD_CMD_LOG"
           eval "$lkcmd"
-          cat "$LLMDBENCH_CICD_SCENARIO_FILE" | yq '.scenario[0].kustomize.guideVariableOverrides.GAIE_VERSION'
+          yq '.scenario[0].kustomize.guideVariableOverrides.GAIE_VERSION' "$LLMDBENCH_CICD_SCENARIO_FILE"
           #
           echo "### Setting \"GAIE_URL\" to \"$LLMDBENCH_CICD_GAIE_URL\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
           lkcmd="yq -i \".scenario[0].kustomize.guideVariableOverrides.GAIE_URL = \\\"$LLMDBENCH_CICD_GAIE_URL\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
           echo -n "; $lkcmd" >> "$LLMDBENCH_CICD_CMD_LOG"
           eval "$lkcmd"
-          cat "$LLMDBENCH_CICD_SCENARIO_FILE" | yq '.scenario[0].kustomize.guideVariableOverrides.GAIE_URL'
+          yq '.scenario[0].kustomize.guideVariableOverrides.GAIE_URL' "$LLMDBENCH_CICD_SCENARIO_FILE"
           #
           echo "### Setting \"LLMDBENCH_CICD_ROUTER_RELEASE_VERSION\" to \"$LLMDBENCH_CICD_ROUTER_RELEASE_VERSION\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
           lkcmd="yq -i \".scenario[0].kustomize.guideVariableOverrides.ROUTER_RELEASE_VERSION = \\\"$LLMDBENCH_CICD_ROUTER_RELEASE_VERSION\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
           echo -n "; $lkcmd" >> "$LLMDBENCH_CICD_CMD_LOG"
           eval "$lkcmd"
-          cat "$LLMDBENCH_CICD_SCENARIO_FILE" | yq '.scenario[0].kustomize.guideVariableOverrides.ROUTER_RELEASE_VERSION'
+          yq '.scenario[0].kustomize.guideVariableOverrides.ROUTER_RELEASE_VERSION' "$LLMDBENCH_CICD_SCENARIO_FILE"
           #
           echo "### Setting \"ROUTER_RELEASE_URL\" to \"$LLMDBENCH_CICD_ROUTER_RELEASE_URL\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
           lkcmd="yq -i \".scenario[0].kustomize.guideVariableOverrides.ROUTER_RELEASE_URL = \\\"$LLMDBENCH_CICD_ROUTER_RELEASE_URL\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
           echo -n "; $lkcmd" >> "$LLMDBENCH_CICD_CMD_LOG"
           eval "$lkcmd"
-          cat "$LLMDBENCH_CICD_SCENARIO_FILE" | yq '.scenario[0].kustomize.guideVariableOverrides.ROUTER_RELEASE_URL'
+          yq '.scenario[0].kustomize.guideVariableOverrides.ROUTER_RELEASE_URL' "$LLMDBENCH_CICD_SCENARIO_FILE"
           #
           echo "### Setting \"ROUTER_STANDALONE_CHART\" to \"$LLMDBENCH_CICD_ROUTER_STANDALONE_CHART_URL\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
           lkcmd="yq -i \".scenario[0].kustomize.guideVariableOverrides.ROUTER_STANDALONE_CHART = \\\"$LLMDBENCH_CICD_ROUTER_STANDALONE_CHART_URL\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
           echo -n "; $lkcmd" >> "$LLMDBENCH_CICD_CMD_LOG"
           eval "$lkcmd"
-          cat "$LLMDBENCH_CICD_SCENARIO_FILE" | yq '.scenario[0].kustomize.guideVariableOverrides.ROUTER_STANDALONE_CHART'
+          yq '.scenario[0].kustomize.guideVariableOverrides.ROUTER_STANDALONE_CHART' "$LLMDBENCH_CICD_SCENARIO_FILE"
           #
           echo "### Setting \"ROUTER_GATEWAY_CHART\" to \"$LLMDBENCH_CICD_ROUTER_GATEWAY_CHART_URL\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
           lkcmd="yq -i \".scenario[0].kustomize.guideVariableOverrides.ROUTER_GATEWAY_CHART = \\\"$LLMDBENCH_CICD_ROUTER_GATEWAY_CHART_URL\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
           echo -n "; $lkcmd" >> "$LLMDBENCH_CICD_CMD_LOG"
           eval "$lkcmd"
-          cat "$LLMDBENCH_CICD_SCENARIO_FILE" | yq '.scenario[0].kustomize.guideVariableOverrides.ROUTER_GATEWAY_CHART'
+          yq '.scenario[0].kustomize.guideVariableOverrides.ROUTER_GATEWAY_CHART' "$LLMDBENCH_CICD_SCENARIO_FILE"
           #
           echo "### Setting \"ROUTER_CHART_VERSION\" to \"$LLMDBENCH_CICD_ROUTER_CHART_VERSION\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
           lkcmd="yq -i \".scenario[0].kustomize.guideVariableOverrides.ROUTER_CHART_VERSION = \\\"$LLMDBENCH_CICD_ROUTER_CHART_VERSION\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
           echo -n "; $lkcmd" >> "$LLMDBENCH_CICD_CMD_LOG"
           eval "$lkcmd"
-          cat "$LLMDBENCH_CICD_SCENARIO_FILE" | yq '.scenario[0].kustomize.guideVariableOverrides.ROUTER_CHART_VERSION'
+          yq '.scenario[0].kustomize.guideVariableOverrides.ROUTER_CHART_VERSION' "$LLMDBENCH_CICD_SCENARIO_FILE"
           #
-          if [[ ! -z $LLMDBENCH_CICD_CONNECTOR ]]; then
+          if [[ -n $LLMDBENCH_CICD_CONNECTOR ]]; then
             echo "### Setting \"CONNECTOR\" to \"$LLMDBENCH_CICD_CONNECTOR\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
             lkcmd="yq -i '.scenario[0].kustomize.guideVariableOverrides.CONNECTOR = strenv(LLMDBENCH_CICD_CONNECTOR)' \"$LLMDBENCH_CICD_SCENARIO_FILE\""
             echo -n "; $lkcmd" >> "$LLMDBENCH_CICD_CMD_LOG"
             yq -i '.scenario[0].kustomize.guideVariableOverrides.CONNECTOR = strenv(LLMDBENCH_CICD_CONNECTOR)' "$LLMDBENCH_CICD_SCENARIO_FILE"
-            cat "$LLMDBENCH_CICD_SCENARIO_FILE" | yq '.scenario[0].kustomize.guideVariableOverrides.CONNECTOR'
+            yq '.scenario[0].kustomize.guideVariableOverrides.CONNECTOR' "$LLMDBENCH_CICD_SCENARIO_FILE"
           fi
-          if [[ ! -z $LLMDBENCH_CICD_OFFLOADING_TARGET ]]; then
+          if [[ -n $LLMDBENCH_CICD_OFFLOADING_TARGET ]]; then
             echo "### Setting \"VARIANT\" to \"$LLMDBENCH_CICD_OFFLOADING_TARGET\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
             lkcmd="yq -i \".scenario[0].kustomize.guideVariableOverrides.VARIANT = \\\"$LLMDBENCH_CICD_OFFLOADING_TARGET\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
             echo -n "; $lkcmd" >> "$LLMDBENCH_CICD_CMD_LOG"
             eval "$lkcmd"
-            cat "$LLMDBENCH_CICD_SCENARIO_FILE" | yq '.scenario[0].kustomize.guideVariableOverrides.VARIANT'
+            yq '.scenario[0].kustomize.guideVariableOverrides.VARIANT' "$LLMDBENCH_CICD_SCENARIO_FILE"
           fi
           echo "### Setting \"guideName\" to \"$LLMDBENCH_CICD_EFFECTIVE_GUIDE_NAME\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
           lkcmd="yq -i \".scenario[0].kustomize.guideName = \\\"$LLMDBENCH_CICD_EFFECTIVE_GUIDE_NAME\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
           echo -n "; $lkcmd" >> "$LLMDBENCH_CICD_CMD_LOG"
           eval "$lkcmd"
-          cat "$LLMDBENCH_CICD_SCENARIO_FILE" | yq '.scenario[0].kustomize.guideName'
+          yq '.scenario[0].kustomize.guideName' "$LLMDBENCH_CICD_SCENARIO_FILE"
           echo "### Setting \"repoPath\" to \"$LLMDBENCH_CICD_REPO_PATH\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
           lkcmd="yq -i \".scenario[0].kustomize.repoPath = \\\"$LLMDBENCH_CICD_REPO_PATH\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
           echo -n "; $lkcmd" >> "$LLMDBENCH_CICD_CMD_LOG"
           eval "$lkcmd"
-          cat "$LLMDBENCH_CICD_SCENARIO_FILE" | yq '.scenario[0].kustomize.repoPath'
+          yq '.scenario[0].kustomize.repoPath' "$LLMDBENCH_CICD_SCENARIO_FILE"
           echo "### Setting \"NAMESPACE\" to \"$LLMDBENCH_CICD_NS\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
           lkcmd="yq -i \".scenario[0].kustomize.guideVariableOverrides.NAMESPACE = \\\"$LLMDBENCH_CICD_NS\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
           echo -n "; $lkcmd" >> "$LLMDBENCH_CICD_CMD_LOG"
           eval "$lkcmd"
-          cat "$LLMDBENCH_CICD_SCENARIO_FILE" | yq '.scenario[0].kustomize.guideVariableOverrides.NAMESPACE'
+          yq '.scenario[0].kustomize.guideVariableOverrides.NAMESPACE' "$LLMDBENCH_CICD_SCENARIO_FILE"
           LLMDBENCH_CICD_BACKEND_ACCELERATOR=$(echo "$LLMDBENCH_CICD_ACCELERATOR"/"$LLMDBENCH_CICD_BACKEND" | sed -e 's^//^/^g' -e 's^/$^^g')
           export LLMDBENCH_CICD_BACKEND_ACCELERATOR
           echo "### Setting \"acceleratorBackend\" to \"$LLMDBENCH_CICD_BACKEND_ACCELERATOR\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
           lkcmd="yq -i \".scenario[0].kustomize.acceleratorBackend = \\\"$LLMDBENCH_CICD_BACKEND_ACCELERATOR\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
           echo -n "; $lkcmd" >> "$LLMDBENCH_CICD_CMD_LOG"
           eval "$lkcmd"
-          cat "$LLMDBENCH_CICD_SCENARIO_FILE" | yq '.scenario[0].kustomize.acceleratorBackend'
+          yq '.scenario[0].kustomize.acceleratorBackend' "$LLMDBENCH_CICD_SCENARIO_FILE"
         shell: bash
 
       - name: Set harness executable
@@ -1050,7 +1050,7 @@ jobs:
           if [[ -n "$LLMDBENCH_CICD_TASKS" ]]; then
             export LLMDBENCH_EXTRA_RUN_OPERATION_CMD="-j $LLMDBENCH_CICD_TASKS $LLMDBENCH_EXTRA_RUN_OPERATION_CMD "
           fi
-          if [[ ! -z $LLMDBENCH_CICD_DETECTED_MODEL ]]; then
+          if [[ -n $LLMDBENCH_CICD_DETECTED_MODEL ]]; then
             export LLMDBENCH_EXTRA_RUN_OPERATION_CMD="--model $LLMDBENCH_CICD_DETECTED_MODEL $LLMDBENCH_EXTRA_RUN_OPERATION_CMD "
           fi
           if [[ "$LLMDBENCH_MONITORING_ENABLED" == "false" ]]; then
@@ -1060,7 +1060,7 @@ jobs:
           if [[ "$LLMDBENCH_CICD_DEEP_CLEANING" == "true" ]]; then
             export LLMDBENCH_EXTRA_TEARDOWN_OPERATION_CMD="$LLMDBENCH_EXTRA_TEARDOWN_OPERATION_CMD --deep"
           fi
-          if [[ ! -z $LLMDBENCH_CICD_DETECTED_MODEL ]]; then
+          if [[ -n $LLMDBENCH_CICD_DETECTED_MODEL ]]; then
             export LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD="--models $LLMDBENCH_CICD_DETECTED_MODEL $LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD "
             export LLMDBENCH_EXTRA_TEARDOWN_OPERATION_CMD="--models $LLMDBENCH_CICD_DETECTED_MODEL $LLMDBENCH_EXTRA_TEARDOWN_OPERATION_CMD "
           fi
