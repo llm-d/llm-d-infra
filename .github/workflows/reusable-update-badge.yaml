@@ -44,15 +44,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
-            echo "color=blue" >> $GITHUB_OUTPUT
-            echo "message=dry-run" >> $GITHUB_OUTPUT
+            echo "color=blue" >> "$GITHUB_OUTPUT"
+            echo "message=dry-run" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           case "${{ inputs.result }}" in
             success)
-              echo "color=brightgreen" >> $GITHUB_OUTPUT
-              echo "message=passing" >> $GITHUB_OUTPUT
+              echo "color=brightgreen" >> "$GITHUB_OUTPUT"
+              echo "message=passing" >> "$GITHUB_OUTPUT"
               ;;
             cancelled)
               # Detect timeout: if the nightly job ran longer than 50 min before cancellation
@@ -79,48 +79,48 @@ jobs:
               fi
 
               if [ "$IS_TIMEOUT" = "true" ]; then
-                echo "color=yellow" >> $GITHUB_OUTPUT
-                echo "message=timeout" >> $GITHUB_OUTPUT
+                echo "color=yellow" >> "$GITHUB_OUTPUT"
+                echo "message=timeout" >> "$GITHUB_OUTPUT"
               else
-                echo "color=lightgrey" >> $GITHUB_OUTPUT
-                echo "message=cancelled" >> $GITHUB_OUTPUT
+                echo "color=lightgrey" >> "$GITHUB_OUTPUT"
+                echo "message=cancelled" >> "$GITHUB_OUTPUT"
               fi
               ;;
             skipped)
-              echo "color=lightgrey" >> $GITHUB_OUTPUT
-              echo "message=skipped" >> $GITHUB_OUTPUT
+              echo "color=lightgrey" >> "$GITHUB_OUTPUT"
+              echo "message=skipped" >> "$GITHUB_OUTPUT"
               ;;
             failure)
               case "${{ inputs.failure_category }}" in
                 prereqs)
-                  echo "color=black" >> $GITHUB_OUTPUT
-                  echo "message=prereqs-error" >> $GITHUB_OUTPUT
+                  echo "color=black" >> "$GITHUB_OUTPUT"
+                  echo "message=prereqs-error" >> "$GITHUB_OUTPUT"
                   ;;
                 infra)
-                  echo "color=orange" >> $GITHUB_OUTPUT
-                  echo "message=infra-error" >> $GITHUB_OUTPUT
+                  echo "color=orange" >> "$GITHUB_OUTPUT"
+                  echo "message=infra-error" >> "$GITHUB_OUTPUT"
                   ;;
                 prepare)
-                  echo "color=brown" >> $GITHUB_OUTPUT
-                  echo "message=prepare-error" >> $GITHUB_OUTPUT
+                  echo "color=brown" >> "$GITHUB_OUTPUT"
+                  echo "message=prepare-error" >> "$GITHUB_OUTPUT"
                   ;;
                 guide)
-                  echo "color=red" >> $GITHUB_OUTPUT
-                  echo "message=guide-error" >> $GITHUB_OUTPUT
+                  echo "color=red" >> "$GITHUB_OUTPUT"
+                  echo "message=guide-error" >> "$GITHUB_OUTPUT"
                   ;;
                 benchmark)
-                  echo "color=yellow" >> $GITHUB_OUTPUT
-                  echo "message=benchmark-error" >> $GITHUB_OUTPUT
+                  echo "color=yellow" >> "$GITHUB_OUTPUT"
+                  echo "message=benchmark-error" >> "$GITHUB_OUTPUT"
                   ;;
                 *)
-                  echo "color=red" >> $GITHUB_OUTPUT
-                  echo "message=failing" >> $GITHUB_OUTPUT
+                  echo "color=red" >> "$GITHUB_OUTPUT"
+                  echo "message=failing" >> "$GITHUB_OUTPUT"
                   ;;
               esac
               ;;
             *)
-              echo "color=red" >> $GITHUB_OUTPUT
-              echo "message=failing" >> $GITHUB_OUTPUT
+              echo "color=red" >> "$GITHUB_OUTPUT"
+              echo "message=failing" >> "$GITHUB_OUTPUT"
               ;;
           esac
 

@@ -21,18 +21,10 @@ repos:
   # GitHub Actions workflow linting
   # check-yaml proves a workflow parses; actionlint proves it is a valid
   # workflow — bad ${{ }} expressions, unknown inputs, invalid uses/needs.
+  # Runs with the bundled shellcheck integration fully enabled: the backlog it
+  # originally reported was fixed rather than suppressed, so no -ignore or
+  # -shellcheck= args are needed here.
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.12
     hooks:
       - id: actionlint
-        args:
-          # Backlog excluded for now, to be tackled separately:
-          #   -shellcheck= disables the shellcheck-inside-run-blocks
-          #     integration (300 findings, nearly all info-level SC2086).
-          #   -ignore skips one pre-existing required-input-with-default
-          #     in reusable-query-success-past-runs.yaml.
-          # All native actionlint checks stay on — those are the ones that
-          # catch the #249 class of error.
-          - -shellcheck=
-          - -ignore
-          - 'but it is also required'

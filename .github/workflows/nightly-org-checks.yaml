@@ -63,8 +63,8 @@ jobs:
             REPOS=$(echo -e "$LLM_D\n$INCUBATION" | grep -v '^$' | sort | jq -R . | jq -sc .)
           fi
 
-          echo "matrix={\"repo\":$REPOS}" >> $GITHUB_OUTPUT
-          echo "Repos to check: $(echo $REPOS | jq -r '. | length')"
+          echo "matrix={\"repo\":$REPOS}" >> "$GITHUB_OUTPUT"
+          echo "Repos to check: $(echo "$REPOS" | jq -r '. | length')"
 
   # -----------------------------------------------------------
   # Phase 2: Check each repo
@@ -118,7 +118,7 @@ jobs:
 
           typos --config "$CONFIG" --format json . > /tmp/typos-raw.json 2>/dev/null || true
           TYPO_COUNT=$(jq -s '[.[] | select(.type == "typo")] | length' /tmp/typos-raw.json 2>/dev/null || echo "0")
-          echo "typo_count=$TYPO_COUNT" >> $GITHUB_OUTPUT
+          echo "typo_count=$TYPO_COUNT" >> "$GITHUB_OUTPUT"
 
       - name: Create typo issue
         if: inputs.skip_typos != true && steps.typos.outputs.typo_count != '0'
@@ -129,16 +129,16 @@ jobs:
           UNIQUE=$(wc -l < /tmp/typos-deduped.txt | tr -d ' ')
 
           # Ensure label exists (may fail if token lacks label permissions)
-          LABEL_ARGS=""
+          LABEL_ARGS=()
           if gh label create "typo" --repo "$REPO" --color "fbca04" \
             --description "Typo detected by nightly scan" 2>/dev/null; then
-            LABEL_ARGS="--label typo"
+            LABEL_ARGS=(--label typo)
           elif gh label list --repo "$REPO" --json name --jq '.[].name' 2>/dev/null | grep -q '^typo$'; then
-            LABEL_ARGS="--label typo"
+            LABEL_ARGS=(--label typo)
           fi
 
           # Check for existing open issue (search by label if available, else by title)
-          if [ -n "$LABEL_ARGS" ]; then
+          if [ ${#LABEL_ARGS[@]} -gt 0 ]; then
             EXISTING=$(gh issue list --repo "$REPO" --state open --label "typo" --json number \
               --jq '.[0].number // empty' 2>/dev/null || true)
           else
@@ -151,6 +151,7 @@ jobs:
             EXISTING_BODY=$(gh issue view "$EXISTING" --repo "$REPO" --json body --jq '.body' 2>/dev/null || true)
             NEW_LINES=""
             while IFS= read -r line; do
+              # shellcheck disable=SC2016  # single quotes intentional: PCRE pattern, not shell expansion
               WORD=$(echo "$line" | grep -oP '`\K[^`]+' | head -1)
               if ! echo "$EXISTING_BODY" | grep -qF "$WORD" 2>/dev/null; then
                 NEW_LINES="${NEW_LINES}${line}\n"
@@ -199,7 +200,7 @@ jobs:
             gh issue create --repo "$REPO" \
               --title "Typos detected by nightly scan ($UNIQUE found)" \
               --body "$BODY" \
-              $LABEL_ARGS
+              "${LABEL_ARGS[@]}"
           fi
 
       # -------------------------------------------------------
@@ -230,22 +231,22 @@ jobs:
             '**/*.md' 2>/dev/null || true
 
           BROKEN=$(jq '[.fail // {} | to_entries[] | .value[]] | length' /tmp/lychee-results.json 2>/dev/null || echo "0")
-          echo "broken_count=$BROKEN" >> $GITHUB_OUTPUT
+          echo "broken_count=$BROKEN" >> "$GITHUB_OUTPUT"
 
       - name: Create link issues
         if: inputs.skip_links != true && steps.links.outputs.broken_count != '0'
         run: |
           # Ensure label exists (may fail if token lacks label permissions)
-          LINK_LABEL_ARGS=""
+          LINK_LABEL_ARGS=()
           if gh label create "broken-link" --repo "$REPO" --color "d73a4a" \
             --description "Broken link detected by nightly scan" 2>/dev/null; then
-            LINK_LABEL_ARGS="--label broken-link"
+            LINK_LABEL_ARGS=(--label broken-link)
           elif gh label list --repo "$REPO" --json name --jq '.[].name' 2>/dev/null | grep -q '^broken-link$'; then
-            LINK_LABEL_ARGS="--label broken-link"
+            LINK_LABEL_ARGS=(--label broken-link)
           fi
 
           # Get existing open issues
-          if [ -n "$LINK_LABEL_ARGS" ]; then
+          if [ ${#LINK_LABEL_ARGS[@]} -gt 0 ]; then
             gh issue list --repo "$REPO" --state open --label "broken-link" --json title \
               --jq '.[].title' > /tmp/existing-link-issues.txt 2>/dev/null || true
           else
@@ -281,7 +282,7 @@ jobs:
             gh issue create --repo "$REPO" \
               --title "${TITLE:0:256}" \
               --body "$BODY" \
-              $LINK_LABEL_ARGS || true
+              "${LINK_LABEL_ARGS[@]}" || true
 
             CREATED=$((CREATED + 1))
             [ "$CREATED" -ge 10 ] && break
@@ -305,28 +306,28 @@ jobs:
         run: |
           if [ ! -f docs/upstream-versions.md ]; then
             echo "No docs/upstream-versions.md — skipping upstream check"
-            echo "changed_count=0" >> $GITHUB_OUTPUT
+            echo "changed_count=0" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           bash _infra/scripts/check-upstream-releases.sh || true
           CHANGED=$(jq -r '.changed_count // 0' /tmp/upstream-check-results.json 2>/dev/null || echo "0")
-          echo "changed_count=$CHANGED" >> $GITHUB_OUTPUT
+          echo "changed_count=$CHANGED" >> "$GITHUB_OUTPUT"
 
       - name: Create upstream issues
         if: inputs.skip_upstream != true && steps.upstream.outputs.changed_count != '0'
         run: |
           # Ensure label exists (may fail if token lacks label permissions)
-          UPSTREAM_LABEL_ARGS=""
+          UPSTREAM_LABEL_ARGS=()
           if gh label create "upstream-update" --repo "$REPO" --color "0075ca" \
             --description "Upstream dependency update detected" 2>/dev/null; then
-            UPSTREAM_LABEL_ARGS="--label upstream-update"
+            UPSTREAM_LABEL_ARGS=(--label upstream-update)
           elif gh label list --repo "$REPO" --json name --jq '.[].name' 2>/dev/null | grep -q '^upstream-update$'; then
-            UPSTREAM_LABEL_ARGS="--label upstream-update"
+            UPSTREAM_LABEL_ARGS=(--label upstream-update)
           fi
 
           # Get existing open upstream issues
-          if [ -n "$UPSTREAM_LABEL_ARGS" ]; then
+          if [ ${#UPSTREAM_LABEL_ARGS[@]} -gt 0 ]; then
             gh issue list --repo "$REPO" --state open --label "upstream-update" --json title \
               --jq '.[].title' > /tmp/existing-upstream-issues.txt 2>/dev/null || true
           else
@@ -360,7 +361,7 @@ jobs:
             gh issue create --repo "$REPO" \
               --title "${TITLE:0:256}" \
               --body "$BODY" \
-              $UPSTREAM_LABEL_ARGS || true
+              "${UPSTREAM_LABEL_ARGS[@]}" || true
           done
 
       # -------------------------------------------------------
@@ -369,9 +370,11 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          echo "## $REPO" >> $GITHUB_STEP_SUMMARY
-          echo "| Check | Result |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Typos | ${{ steps.typos.outputs.typo_count || '—' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Broken links | ${{ steps.links.outputs.broken_count || '—' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Upstream changes | ${{ steps.upstream.outputs.changed_count || '—' }} |" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## $REPO"
+            echo "| Check | Result |"
+            echo "|-------|--------|"
+            echo "| Typos | ${{ steps.typos.outputs.typo_count || '—' }} |"
+            echo "| Broken links | ${{ steps.links.outputs.broken_count || '—' }} |"
+            echo "| Upstream changes | ${{ steps.upstream.outputs.changed_count || '—' }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

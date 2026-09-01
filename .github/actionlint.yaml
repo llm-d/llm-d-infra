@@ -6,3 +6,4 @@ self-hosted-runner:
     - waldorf
     - openshift
     - pok-prod
+    - rocm

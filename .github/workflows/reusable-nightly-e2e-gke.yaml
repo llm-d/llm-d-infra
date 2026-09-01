@@ -245,7 +245,7 @@ jobs:
             kubectl cordon "$node" 2>/dev/null || true
             CORDONED_NODES="$CORDONED_NODES $node"
           done
-          echo "NIGHTLY_CORDONED_NODES=$CORDONED_NODES" >> $GITHUB_ENV
+          echo "NIGHTLY_CORDONED_NODES=$CORDONED_NODES" >> "$GITHUB_ENV"
           if [ -z "$CORDONED_NODES" ]; then
             echo "All GPU nodes are healthy"
           else
@@ -275,24 +275,28 @@ jobs:
           GPU_NODE_COUNT=$(kubectl get nodes -o json | \
             jq '[.items[] | select((.status.allocatable["nvidia.com/gpu"] // "0" | tonumber) > 0)] | length')
 
-          echo "total_gpus=$TOTAL_GPUS" >> $GITHUB_OUTPUT
-          echo "allocated_gpus=$ALLOCATED_GPUS" >> $GITHUB_OUTPUT
-          echo "available_gpus=$AVAILABLE_GPUS" >> $GITHUB_OUTPUT
+          {
+            echo "total_gpus=$TOTAL_GPUS"
+            echo "allocated_gpus=$ALLOCATED_GPUS"
+            echo "available_gpus=$AVAILABLE_GPUS"
+          } >> "$GITHUB_OUTPUT"
 
-          echo "## GPU Status — Nightly ($GUIDE_NAME on GKE)" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Cluster | $GKE_CLUSTER_NAME ($GKE_CLUSTER_ZONE) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Total cluster GPUs | $TOTAL_GPUS |" >> $GITHUB_STEP_SUMMARY
-          echo "| Currently allocated | $ALLOCATED_GPUS |" >> $GITHUB_STEP_SUMMARY
-          echo "| Available | $AVAILABLE_GPUS |" >> $GITHUB_STEP_SUMMARY
-          echo "| Required (minimum) | $REQUIRED_GPUS |" >> $GITHUB_STEP_SUMMARY
-          echo "| Recommended (with scale-up) | $RECOMMENDED_GPUS |" >> $GITHUB_STEP_SUMMARY
-          echo "| Nodes | $NODE_COUNT ($GPU_NODE_COUNT with GPUs) |" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## GPU Status — Nightly ($GUIDE_NAME on GKE)"
+            echo "| Metric | Count |"
+            echo "|--------|-------|"
+            echo "| Cluster | $GKE_CLUSTER_NAME ($GKE_CLUSTER_ZONE) |"
+            echo "| Total cluster GPUs | $TOTAL_GPUS |"
+            echo "| Currently allocated | $ALLOCATED_GPUS |"
+            echo "| Available | $AVAILABLE_GPUS |"
+            echo "| Required (minimum) | $REQUIRED_GPUS |"
+            echo "| Recommended (with scale-up) | $RECOMMENDED_GPUS |"
+            echo "| Nodes | $NODE_COUNT ($GPU_NODE_COUNT with GPUs) |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$REQUIRED_GPUS" -eq 0 ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**No GPUs required** for this guide (simulated accelerators)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**No GPUs required** for this guide (simulated accelerators)" >> "$GITHUB_STEP_SUMMARY"
           elif [ "$AVAILABLE_GPUS" -lt "$REQUIRED_GPUS" ]; then
             if [ "${GPU_WAIT_TIMEOUT:-0}" -gt 0 ]; then
               DEADLINE=$((SECONDS + GPU_WAIT_TIMEOUT * 60))
@@ -304,8 +308,8 @@ jobs:
                 check_gpus
                 if [ "$AVAILABLE_GPUS" -ge "$REQUIRED_GPUS" ]; then
                   echo "[$(date +%H:%M:%S)] GPUs now available: $AVAILABLE_GPUS free"
-                  echo "available_gpus=$AVAILABLE_GPUS" >> $GITHUB_OUTPUT
-                  echo "allocated_gpus=$ALLOCATED_GPUS" >> $GITHUB_OUTPUT
+                  echo "available_gpus=$AVAILABLE_GPUS" >> "$GITHUB_OUTPUT"
+                  echo "allocated_gpus=$ALLOCATED_GPUS" >> "$GITHUB_OUTPUT"
                   break
                 fi
               done
@@ -327,36 +331,36 @@ jobs:
                   )] | length')
                 POTENTIAL_GPUS=$((AVAILABLE_GPUS + PREEMPTABLE_GPU_COUNT))
                 if [ "$POTENTIAL_GPUS" -ge "$REQUIRED_GPUS" ]; then
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Insufficient free GPUs** — need $REQUIRED_GPUS but only $AVAILABLE_GPUS free. Found $PREEMPTABLE_POD_COUNT preemptable GPU pod(s) holding $PREEMPTABLE_GPU_COUNT GPU(s) — proceeding (Kubernetes will preempt as needed)." >> $GITHUB_STEP_SUMMARY
+                  echo "" >> "$GITHUB_STEP_SUMMARY"
+                  echo "**Insufficient free GPUs** — need $REQUIRED_GPUS but only $AVAILABLE_GPUS free. Found $PREEMPTABLE_POD_COUNT preemptable GPU pod(s) holding $PREEMPTABLE_GPU_COUNT GPU(s) — proceeding (Kubernetes will preempt as needed)." >> "$GITHUB_STEP_SUMMARY"
                   echo "::warning::Insufficient free GPUs ($AVAILABLE_GPUS/$REQUIRED_GPUS) but $PREEMPTABLE_GPU_COUNT preemptable GPUs available (priority <= 0)"
                 else
                   WAIT_MSG=""
                   [ "${GPU_WAIT_TIMEOUT:-0}" -gt 0 ] && WAIT_MSG=" (after waiting ${GPU_WAIT_TIMEOUT}m)"
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Insufficient GPUs${WAIT_MSG}** — need $REQUIRED_GPUS, have $AVAILABLE_GPUS free + $PREEMPTABLE_GPU_COUNT preemptable = $POTENTIAL_GPUS total (not enough)." >> $GITHUB_STEP_SUMMARY
+                  echo "" >> "$GITHUB_STEP_SUMMARY"
+                  echo "**Insufficient GPUs${WAIT_MSG}** — need $REQUIRED_GPUS, have $AVAILABLE_GPUS free + $PREEMPTABLE_GPU_COUNT preemptable = $POTENTIAL_GPUS total (not enough)." >> "$GITHUB_STEP_SUMMARY"
                   echo "::error::Insufficient GPUs: need $REQUIRED_GPUS, have $AVAILABLE_GPUS free + $PREEMPTABLE_GPU_COUNT preemptable = $POTENTIAL_GPUS total.${WAIT_MSG}"
                   exit 1
                 fi
               else
                 WAIT_MSG=""
                 [ "${GPU_WAIT_TIMEOUT:-0}" -gt 0 ] && WAIT_MSG=" (after waiting ${GPU_WAIT_TIMEOUT}m)"
-                echo "" >> $GITHUB_STEP_SUMMARY
-                echo "**Insufficient GPUs${WAIT_MSG}** — need $REQUIRED_GPUS but only $AVAILABLE_GPUS available." >> $GITHUB_STEP_SUMMARY
+                echo "" >> "$GITHUB_STEP_SUMMARY"
+                echo "**Insufficient GPUs${WAIT_MSG}** — need $REQUIRED_GPUS but only $AVAILABLE_GPUS available." >> "$GITHUB_STEP_SUMMARY"
                 echo "::error::Insufficient GPUs: need $REQUIRED_GPUS, have $AVAILABLE_GPUS available${WAIT_MSG}"
                 exit 1
               fi
             else
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "**GPUs available after waiting** — $AVAILABLE_GPUS GPUs free ($REQUIRED_GPUS required, $RECOMMENDED_GPUS recommended)" >> $GITHUB_STEP_SUMMARY
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "**GPUs available after waiting** — $AVAILABLE_GPUS GPUs free ($REQUIRED_GPUS required, $RECOMMENDED_GPUS recommended)" >> "$GITHUB_STEP_SUMMARY"
             fi
           elif [ "$AVAILABLE_GPUS" -lt "$RECOMMENDED_GPUS" ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Low GPU headroom** — $AVAILABLE_GPUS available (need $RECOMMENDED_GPUS for scale-up tests)." >> $GITHUB_STEP_SUMMARY
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Low GPU headroom** — $AVAILABLE_GPUS available (need $RECOMMENDED_GPUS for scale-up tests)." >> "$GITHUB_STEP_SUMMARY"
             echo "::warning::Low GPU headroom: $AVAILABLE_GPUS available, $RECOMMENDED_GPUS recommended"
           else
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**GPUs available** — $AVAILABLE_GPUS GPUs free ($REQUIRED_GPUS required, $RECOMMENDED_GPUS recommended)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**GPUs available** — $AVAILABLE_GPUS GPUs free ($REQUIRED_GPUS required, $RECOMMENDED_GPUS recommended)" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Create nightly PriorityClass
@@ -433,7 +437,7 @@ jobs:
         if: inputs.image_override != ''
         run: |
           set -euo pipefail
-          echo "IMAGE_OVERRIDE=${{ inputs.image_override }}" >> $GITHUB_ENV
+          echo "IMAGE_OVERRIDE=${{ inputs.image_override }}" >> "$GITHUB_ENV"
           echo "Overriding vLLM images to: ${{ inputs.image_override }}"
           VALUES_FILES=$(find "$GUIDE_PATH" -name "values*.yaml")
           if [ -z "$VALUES_FILES" ]; then
@@ -445,7 +449,7 @@ jobs:
               yq e '(select(.decode.containers != null) | .decode.containers[].image | select(test("^ghcr\.io/llm-d/llm-d-cuda"))) = strenv(IMAGE_OVERRIDE)' -i "$file"
               yq e '(select(.prefill.containers != null) | .prefill.containers[].image | select(test("^ghcr\.io/llm-d/llm-d-cuda"))) = strenv(IMAGE_OVERRIDE)' -i "$file"
               yq e '(select(.containers != null) | .containers[].image | select(test("^ghcr\.io/llm-d/llm-d-cuda"))) = strenv(IMAGE_OVERRIDE)' -i "$file"
-              sed -E "s/^#([[:space:]]+)priorityClassName/\1priorityClassName/g" -i $file
+              sed -E "s/^#([[:space:]]+)priorityClassName/\1priorityClassName/g" -i "$file"
             done
           fi
         env:
@@ -540,7 +544,7 @@ jobs:
             while IFS= read -r ref; do
               [ -z "$ref" ] && continue
               name=$(echo "$ref" | sed 's|.*/||' | cut -d: -f1)
-              tag=$(echo "$ref" | sed 's/.*://')
+              tag="${ref##*:}"
               if echo "$ref" | grep -q 'ghcr\.io/llm-d/'; then
                 LLMD_IMAGES=$(echo "$LLMD_IMAGES" | jq --arg k "$name" --arg v "$tag" '. + {($k): $v}')
               else
@@ -562,11 +566,13 @@ jobs:
               llmdImages: $llmdImages,
               otherImages: $otherImages
             }' > "$METADATA_FILE"
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Resolved Images" >> $GITHUB_STEP_SUMMARY
-          echo '```json' >> $GITHUB_STEP_SUMMARY
-          jq . "$METADATA_FILE" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          {
+            echo ""
+            echo "### Resolved Images"
+            echo '```json'
+            jq . "$METADATA_FILE"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload image metadata
         if: always()
@@ -619,17 +625,19 @@ jobs:
       - name: Nightly summary
         if: always()
         run: |
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Nightly E2E Results — $GUIDE_NAME (GKE)" >> $GITHUB_STEP_SUMMARY
-          echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Guide | $GUIDE_NAME |" >> $GITHUB_STEP_SUMMARY
-          echo "| Platform | GKE ($GKE_CLUSTER_NAME) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Namespace | $NAMESPACE |" >> $GITHUB_STEP_SUMMARY
-          echo "| Helmfile Env | $HELMFILE_ENV |" >> $GITHUB_STEP_SUMMARY
-          echo "| Gateway Type | $GATEWAY_TYPE |" >> $GITHUB_STEP_SUMMARY
-          echo "| Accelerator | $ACCELERATOR_TYPE |" >> $GITHUB_STEP_SUMMARY
-          echo "| llm-d Ref | ${{ inputs.llm_d_ref }} |" >> $GITHUB_STEP_SUMMARY
+          {
+            echo ""
+            echo "## Nightly E2E Results — $GUIDE_NAME (GKE)"
+            echo "| Setting | Value |"
+            echo "|---------|-------|"
+            echo "| Guide | $GUIDE_NAME |"
+            echo "| Platform | GKE ($GKE_CLUSTER_NAME) |"
+            echo "| Namespace | $NAMESPACE |"
+            echo "| Helmfile Env | $HELMFILE_ENV |"
+            echo "| Gateway Type | $GATEWAY_TYPE |"
+            echo "| Accelerator | $ACCELERATOR_TYPE |"
+            echo "| llm-d Ref | ${{ inputs.llm_d_ref }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment on PR
         if: always() && inputs.pr_number != ''
@@ -673,7 +681,7 @@ jobs:
       - name: Collect pod logs
         if: always()
         run: |
-          mkdir -p /tmp/pod-logs-$GUIDE_NAME
+          mkdir -p /tmp/pod-logs-"$GUIDE_NAME"
           echo "Collecting pod logs from $NAMESPACE..."
           for pod in $(kubectl get pods -n "$NAMESPACE" --no-headers -o custom-columns=":metadata.name" 2>/dev/null); do
             kubectl logs --all-containers=true -n "$NAMESPACE" "$pod" > "/tmp/pod-logs-$GUIDE_NAME/${pod}.log" 2>&1 || true
