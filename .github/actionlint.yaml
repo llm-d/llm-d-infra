@@ -6,3 +6,5 @@ self-hosted-runner:
     - waldorf
     - openshift
     - pok-prod
+    - ubuntu-26.04
+    - rocm
