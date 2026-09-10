@@ -142,7 +142,7 @@ on:
         default: 'false'
         type: 'string'
       harness:
-        description: 'Harness to be used during "run" operation ("inference-perf", "guidellm", "inferencemax", "vllm-benchmark", "eval-containers", "nop")'
+        description: 'Harness to be used during "run" operation ("inference-perf", "guidellm", "inferencemax", "aiperf", "lm-eval", "priority-mix", "vllm-benchmark", "eval-containers", "nop")'
         required: false
         default: 'inference-perf'
         type: 'string'
@@ -195,7 +195,7 @@ on:
         description: 'Timeout in seconds to wait for benchmark pods to complete'
         required: false
         type: 'string'
-        default: '2400'
+        default: '4800'
       pvc_bind_timeout:
         description: 'Timeout in seconds to wait for a pvc to be bound'
         required: false
@@ -253,7 +253,8 @@ on:
 jobs:
   ensure-nightly-build-image:
     name: Ensure Nightly Build Image
-    runs-on: ubuntu-latest
+#    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     outputs:
       conditional_runs_on: ${{ steps.prepare_set_runs_on.outputs.runners }}
@@ -498,7 +499,7 @@ jobs:
         id: prereq_install_yq
         uses: frenck/action-setup-yq@v1
         with:
-          version: 'v4.53.3'
+          version: 'v4.53.6'
 
       - name: Show cluster names
         id: infra_show_cluster_names
@@ -884,10 +885,10 @@ jobs:
           #
           if [[ ! -z $LLMDBENCH_CICD_CONNECTOR ]]; then
             echo "### Setting \"CONNECTOR\" to \"$LLMDBENCH_CICD_CONNECTOR\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
-            lkcmd="yq -i \".scenario[0].kustomize.guideVariableOverrides.CONNECTOR = \\\"$LLMDBENCH_CICD_CONNECTOR\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
+            lkcmd="yq -i '.scenario[0].kustomize.guideVariableOverrides.CONNECTOR = strenv(LLMDBENCH_CICD_CONNECTOR)' \"$LLMDBENCH_CICD_SCENARIO_FILE\""
             echo -n "; $lkcmd" >> "$LLMDBENCH_CICD_CMD_LOG"
-            eval $lkcmd
-            cat $LLMDBENCH_CICD_SCENARIO_FILE | yq '.scenario[0].kustomize.guideVariableOverrides.CONNECTOR'
+            yq -i '.scenario[0].kustomize.guideVariableOverrides.CONNECTOR = strenv(LLMDBENCH_CICD_CONNECTOR)' "$LLMDBENCH_CICD_SCENARIO_FILE"
+            cat "$LLMDBENCH_CICD_SCENARIO_FILE" | yq '.scenario[0].kustomize.guideVariableOverrides.CONNECTOR'
           fi
           if [[ ! -z $LLMDBENCH_CICD_OFFLOADING_TARGET ]]; then
             echo "### Setting \"VARIANT\" to \"$LLMDBENCH_CICD_OFFLOADING_TARGET\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
