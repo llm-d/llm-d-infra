@@ -888,6 +888,12 @@ jobs:
           eval "$lkcmd"
           yq '.scenario[0].kustomize.guideVariableOverrides.ROUTER_CHART_VERSION' "$LLMDBENCH_CICD_SCENARIO_FILE"
           #
+          echo "### Setting \"ACCELERATOR\" to \"$LLMDBENCH_CICD_ACCELERATOR\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
+          lkcmd="yq -i \".scenario[0].kustomize.guideVariableOverrides.ACCELERATOR = \\\"$LLMDBENCH_CICD_ACCELERATOR\\\"\" $LLMDBENCH_CICD_SCENARIO_FILE"
+          echo -n "; $lkcmd" >> "$LLMDBENCH_CICD_CMD_LOG"
+          eval "$lkcmd"
+          yq '.scenario[0].kustomize.guideVariableOverrides.ACCELERATOR' "$LLMDBENCH_CICD_SCENARIO_FILE"
+          #
           if [[ -n $LLMDBENCH_CICD_CONNECTOR ]]; then
             echo "### Setting \"CONNECTOR\" to \"$LLMDBENCH_CICD_CONNECTOR\" in \"$LLMDBENCH_CICD_SCENARIO_FILE\""
             lkcmd="yq -i '.scenario[0].kustomize.guideVariableOverrides.CONNECTOR = strenv(LLMDBENCH_CICD_CONNECTOR)' \"$LLMDBENCH_CICD_SCENARIO_FILE\""
