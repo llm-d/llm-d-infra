@@ -709,6 +709,33 @@ jobs:
           kubectl label node "$NODE" kubernetes.io/os=linux --overwrite
         shell: bash
 
+      - name: Check accelerator availability
+        id: infra_check_accelerator_availability
+        if: env.LLMDBENCH_CICD_TARGET != 'kind'
+        continue-on-error: true
+        run: |
+          # Diagnostic only, always exits 0. Records whether the cluster has any accelerator so
+          # "Detect failure category" can label a missing pool as capacity.
+          accel_re='nvidia.com/gpu|amd.com/gpu|google.com/tpu|habana.ai/gaudi|intel.com/gpu|gpu.intel.com/i915|gpu.intel.com/xe'
+          if ! nodes_json=$(kubectl get nodes -o json 2>/dev/null); then
+            echo "::warning::Could not list nodes, skipping accelerator availability check"
+            echo "available=unknown" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          node_accels=$(echo "$nodes_json" \
+            | jq -r --arg re "$accel_re" '[.items[].status.capacity // {} | to_entries[] | select(.key | test($re)) | select(((.value | tonumber?) // 0) > 0) | .key] | unique | join(",")' 2>/dev/null || true)
+          # DRA-managed accelerators are not in node capacity
+          dra_drivers=$(kubectl get resourceslices -o json 2>/dev/null \
+            | jq -r '[.items[].spec.driver | select(test("gpu\\.|tpu\\."))] | unique | join(",")' 2>/dev/null || true)
+          if [[ -n $node_accels || -n $dra_drivers ]]; then
+            echo "### Accelerators available: capacity=[${node_accels}] dra=[${dra_drivers}]"
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No accelerator resources or DRA ResourceSlices found on the cluster"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+        shell: bash
+
       - name: Set GCS full path
         id: prereq_set_gcs_full_path
         if: inputs.bucket_provider == 'gcs'
@@ -1129,6 +1156,32 @@ jobs:
           fi
         shell: bash
 
+      - name: Check for pods unschedulable due to accelerator capacity
+        id: infra_check_accelerator_scheduling
+        if: failure() && env.LLMDBENCH_CICD_TARGET != 'kind'
+        continue-on-error: true
+        run: |
+          # Diagnostic only, always exits 0. Flags pods still Pending on an accelerator resource
+          # the scheduler reported as missing or exhausted.
+          accel_re='Insufficient (nvidia\.com/gpu|amd\.com/gpu|google\.com/tpu|habana\.ai/gaudi|intel\.com/gpu|gpu\.intel\.com/[a-z0-9]+)|device class [a-z0-9.-]*(gpu|tpu)[a-z0-9.-]* does not exist'
+          if ! pods_json=$(kubectl get pods -n "$LLMDBENCH_CICD_NS" -o json 2>/dev/null) \
+             || ! events_json=$(kubectl get events -n "$LLMDBENCH_CICD_NS" --field-selector reason=FailedScheduling -o json 2>/dev/null); then
+            echo "::warning::Could not list pods or events, skipping accelerator scheduling check"
+            echo "insufficient=unknown" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          pending=$(echo "$pods_json" | jq -c '[.items[] | select(.status.phase == "Pending") | .metadata.name]' 2>/dev/null || echo '[]')
+          hits=$(echo "$events_json" | jq -r --argjson pending "$pending" --arg re "$accel_re" \
+            '[.items[] | select(.involvedObject.kind == "Pod" and (.involvedObject.name as $n | $pending | index($n)) and (.message | test($re))) | .involvedObject.name] | unique | join(",")' 2>/dev/null || true)
+          if [[ -n $hits ]]; then
+            echo "::warning::Pods still Pending for lack of accelerator capacity: ${hits}"
+            echo "insufficient=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "### No pods pending on accelerator capacity"
+            echo "insufficient=false" >> "$GITHUB_OUTPUT"
+          fi
+        shell: bash
+
       - name: Display image list for all pods
         id: guide_image_info
         if: always()
@@ -1288,6 +1341,10 @@ jobs:
           CATEGORY=""
           if [ "${{ steps.benchmark_run.outcome }}" = "failure" ]; then
             CATEGORY="benchmark"
+          elif [ "${{ steps.infra_request_tpus.outcome }}" = "failure" ] || \
+               [ "${{ steps.infra_check_accelerator_availability.outputs.available }}" = "false" ] || \
+               [ "${{ steps.infra_check_accelerator_scheduling.outputs.insufficient }}" = "true" ]; then
+            CATEGORY="capacity"
           elif [ "${{ steps.guide_standup.outcome }}" = "failure" ] || \
                [ "${{ steps.guide_teardown.outcome }}" = "failure" ] || \
                [ "${{ steps.guide_teardown_again.outcome }}" = "failure" ]; then
@@ -1310,7 +1367,6 @@ jobs:
                [ "${{ steps.infra_show_cluster_names.outcome }}" = "failure" ] || \
                [ "${{ steps.infra_show_cluster_nodes.outcome }}" = "failure" ] || \
                [ "${{ steps.infra_show_cluster_storageclasses.outcome }}" = "failure" ] || \
-               [ "${{ steps.infra_request_tpus.outcome }}" = "failure" ] || \
                [ "${{ steps.infra_create_nightly_prioclass.outcome }}" = "failure" ] || \
                [ "${{ steps.infra_label_node_for_simulated_accelerators.outcome }}" = "failure" ] || \
                [ "${{ steps.infra_handle_namesace_and_secret.outcome }}" = "failure" ] || \
