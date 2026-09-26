@@ -232,7 +232,7 @@ on:
         default: 'nightly'
         type: 'string'
       harness_resources:
-        description: 'CPU/Memory limits for the harness pod running llm-d-benchmark workloads (default 32/64Gi)'
+        description: 'CPU/Memory[/MemoryLimit] for the harness pod running llm-d-benchmark workloads (default 32/64Gi). Memory is the request; MemoryLimit defaults to Memory when omitted'
         required: false
         default: '32/64Gi'
         type: 'string'
@@ -1023,10 +1023,14 @@ jobs:
           fi
           export LLMDBENCH_EXTRA_RUN_OPERATION_CMD="--wait-timeout $LLMDBENCH_CICD_RUN_WAIT_TIMEOUT --pvc-bind-timeout $LLMDBENCH_CICD_RUN_PVC_BIND_TIMEOUT --data-access-timeout $LLMDBENCH_CICD_DATA_ACCESS_TIMEOUT $LLMDBENCH_EXTRA_RUN_OPERATION_CMD "
 
-          hcpu=$(echo "$LLMDBENCH_CICD_HARNESS_RESOURCES" | cut -d '/' -f 1)
-          hmem=$(echo "$LLMDBENCH_CICD_HARNESS_RESOURCES" | cut -d '/' -f 2)
-          export LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD="--set harness.resources.cpu=$hcpu --set harness.resources.memory=$hmem $LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD "
-          export LLMDBENCH_EXTRA_RUN_OPERATION_CMD="--set harness.resources.cpu=$hcpu --set harness.resources.memory=$hmem $LLMDBENCH_EXTRA_RUN_OPERATION_CMD "
+          # harness_resources is "cpu/memory[/memoryLimit]". Always override
+          # harness.resources.memoryLimit too: accelerator overlays may pin their
+          # own limit, and a request above it is rejected by Kubernetes admission.
+          IFS='/' read -r hcpu hmem hmemlimit <<< "$LLMDBENCH_CICD_HARNESS_RESOURCES"
+          hmemlimit=${hmemlimit:-$hmem}
+          hres="--set harness.resources.cpu=$hcpu --set harness.resources.memory=$hmem --set harness.resources.memoryLimit=$hmemlimit"
+          export LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD="$hres $LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD "
+          export LLMDBENCH_EXTRA_RUN_OPERATION_CMD="$hres $LLMDBENCH_EXTRA_RUN_OPERATION_CMD "
 
           # Cluster-config supplies target-cluster values (storage class, service
           # account, runAsUser) that cluster-generic scenarios leave unset. Applies
