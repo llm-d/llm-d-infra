@@ -1174,7 +1174,13 @@ jobs:
           pending=$(echo "$pods_json" | jq -c '[.items[] | select(.status.phase == "Pending") | .metadata.name]' 2>/dev/null || echo '[]')
           hits=$(echo "$events_json" | jq -r --argjson pending "$pending" --arg re "$accel_re" \
             '[.items[] | select(.involvedObject.kind == "Pod" and (.involvedObject.name as $n | $pending | index($n)) and (.message | test($re))) | .involvedObject.name] | unique | join(",")' 2>/dev/null || true)
-          if [[ -n $hits ]]; then
+          # Crashed pods outrank Pending ones: a crash loop holds GPUs and blocks the last replica.
+          crashed=$(echo "$pods_json" | jq -r \
+            '[.items[] | select([.status.containerStatuses[]? | (.restartCount > 0) or (.state.waiting.reason? // "" | test("CrashLoopBackOff|Error")) or ((.state.terminated.exitCode? // 0) != 0) or ((.lastState.terminated.exitCode? // 0) != 0)] | any) | .metadata.name] | unique | join(",")' 2>/dev/null || true)
+          if [[ -n $hits && -n $crashed ]]; then
+            echo "### Pending on accelerator (${hits}) but pods crashed (${crashed}), not a capacity failure"
+            echo "insufficient=false" >> "$GITHUB_OUTPUT"
+          elif [[ -n $hits ]]; then
             echo "::warning::Pods still Pending for lack of accelerator capacity: ${hits}"
             echo "insufficient=true" >> "$GITHUB_OUTPUT"
           else
