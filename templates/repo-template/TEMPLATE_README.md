@@ -44,7 +44,7 @@ diff -rq templates/repo-template/ /path/to/your-repo/ --exclude='.git' --exclude
 Priority adoption order:
 1. **Governance** (if missing): `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `PR_SIGNOFF.md`
 2. **Linting** (if outdated): `.golangci.yml`, `.pre-commit-config.yaml`, `.hadolint.yaml`, `_typos.toml`
-3. **CI workflows** (if missing): Start with `ci-signed-commits.yaml`, `check-typos.yaml`, then `ci-pr-checks.yaml`
+3. **CI workflows** (if missing): Start with `ci-signed-commits.yaml`, `typo-checker.md`, then `ci-pr-checks.yaml`
 4. **Prow integration**: `prow-github.yaml`, `prow-pr-automerge.yaml`, `prow-pr-remove-lgtm.yaml`
 5. **Release pipeline**: `ci-release.yaml` + `.github/actions/`
 
@@ -78,8 +78,8 @@ Priority adoption order:
 | `ci-pr-checks.yaml` | PR validation: Go lint/test/build, Python lint, container build |
 | `ci-release.yaml` | Tag-triggered: multi-arch build, push to ghcr.io, Trivy scan |
 | `ci-signed-commits.yaml` | DCO enforcement (calls llm-d-infra reusable workflow) |
-| `check-typos.yaml` | Spell checking (calls llm-d-infra reusable workflow) |
-| `md-link-check.yaml` | Markdown link validation |
+| `typo-checker.md` | AI-powered PR typo checking |
+| `link-checker.md` | AI-powered PR markdown link validation |
 | `stale.yaml` / `unstale.yaml` | Issue/PR staleness management |
 | `prow-github.yaml` | Prow commands (`/lgtm`, `/approve`, `/hold`) |
 | `prow-pr-automerge.yaml` | Auto-merge when Prow labels are set |
