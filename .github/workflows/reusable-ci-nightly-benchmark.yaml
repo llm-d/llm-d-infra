@@ -1020,6 +1020,13 @@ jobs:
                   echo -n "$manifest ($kind, leaderTemplate): "; yq '.spec.leaderWorkerTemplate.leaderTemplate.spec.priorityClassName' "$manifest"
                 fi
                 ;;
+              DisaggregatedSet)
+                # One LeaderWorkerSet template per role (pd-disaggregation, wide-ep), so the same two
+                # paths as above, under .spec.roles[].spec.
+                PC="$LLMDBENCH_CICD_PRIORITY_CLASS" yq -i '.spec.roles[].spec.leaderWorkerTemplate.workerTemplate.spec.priorityClassName = env(PC)' "$manifest"
+                echo -n "$manifest ($kind, workerTemplate): "; yq '[.spec.roles[].spec.leaderWorkerTemplate.workerTemplate.spec.priorityClassName] | join(",")' "$manifest"
+                PC="$LLMDBENCH_CICD_PRIORITY_CLASS" yq -i '(.spec.roles[].spec.leaderWorkerTemplate | select(has("leaderTemplate")) | .leaderTemplate.spec.priorityClassName) = env(PC)' "$manifest"
+                ;;
               *)
                 continue
                 ;;
@@ -1028,15 +1035,31 @@ jobs:
           if [[ $LLMDBENCH_CICD_DECODE_PODS != "auto" ]]; then
             echo "### Setting decode pods to \"$LLMDBENCH_CICD_DECODE_PODS\" on scenario \"$LLMDBENCH_CICD_SCENARIO\""
             for i in vllm decode; do
-              find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/" -type f -name "patch-$i.yaml" -exec yq ".spec.replicas=$LLMDBENCH_CICD_DECODE_PODS" -i {} \;
-              find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/" -type f -name "patch-$i.yaml" -exec bash -c 'echo -n $1:; yq ".spec.replicas" $1' _ {} \;
+              find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/" -type f -name "patch-$i.yaml" ! -exec grep -q "^kind: DisaggregatedSet" {} \; -exec yq ".spec.replicas=$LLMDBENCH_CICD_DECODE_PODS" -i {} \;
+              find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/" -type f -name "patch-$i.yaml" ! -exec grep -q "^kind: DisaggregatedSet" {} \; -print -exec yq ".spec.replicas" {} \;
             done
           fi
           if [[ $LLMDBENCH_CICD_PREFILL_PODS != "auto" ]]; then
             echo "### Setting prefill pods to \"$LLMDBENCH_CICD_PREFILL_PODS\" on scenario \"$LLMDBENCH_CICD_SCENARIO\""
             for i in prefill; do
-              find "$LLMDBENCH_CICD_KUSTOMIZE_PATH" -type f -name "patch-$i.yaml" -exec yq ".spec.replicas=$LLMDBENCH_CICD_PREFILL_PODS" -i {} \;
-              find "$LLMDBENCH_CICD_KUSTOMIZE_PATH" -type f -name "patch-$i.yaml" -exec bash -c 'echo -n $1:; yq ".spec.replicas" $1' _ {} \;
+              find "$LLMDBENCH_CICD_KUSTOMIZE_PATH" -type f -name "patch-$i.yaml" ! -exec grep -q "^kind: DisaggregatedSet" {} \; -exec yq ".spec.replicas=$LLMDBENCH_CICD_PREFILL_PODS" -i {} \;
+              find "$LLMDBENCH_CICD_KUSTOMIZE_PATH" -type f -name "patch-$i.yaml" ! -exec grep -q "^kind: DisaggregatedSet" {} \; -print -exec yq ".spec.replicas" {} \;
+            done
+          fi
+          # DisaggregatedSets keep replicas per role and per slice. The inputs mean pods in total, as
+          # for Deployments, so an override also collapses the set to one slice.
+          if [[ $LLMDBENCH_CICD_DECODE_PODS != "auto" || $LLMDBENCH_CICD_PREFILL_PODS != "auto" ]]; then
+            find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/" -type f \( -name "*.yaml" -o -name "*.yml" \) -print0 | \
+            while IFS= read -r -d '' manifest; do
+              [[ $(yq -r 'select(documentIndex == 0) | .kind // ""' "$manifest" 2>/dev/null) == "DisaggregatedSet" ]] || continue
+              yq -i '.spec.slices = 1' "$manifest"
+              if [[ $LLMDBENCH_CICD_DECODE_PODS != "auto" ]]; then
+                yq -i "(.spec.roles[] | select(.name == \"decode\") | .spec.replicas) = $LLMDBENCH_CICD_DECODE_PODS" "$manifest"
+              fi
+              if [[ $LLMDBENCH_CICD_PREFILL_PODS != "auto" ]]; then
+                yq -i "(.spec.roles[] | select(.name == \"prefill\") | .spec.replicas) = $LLMDBENCH_CICD_PREFILL_PODS" "$manifest"
+              fi
+              echo -n "$manifest (DisaggregatedSet): "; yq '"slices=" + (.spec.slices | tostring) + " " + ([.spec.roles[] | .name + "=" + (.spec.replicas | tostring)] | join(" "))' "$manifest"
             done
           fi
         shell: bash
