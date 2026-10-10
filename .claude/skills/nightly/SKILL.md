@@ -134,8 +134,8 @@ Then follow the appropriate sub-skill for each failure.
 |----------|----------|------|
 | `reusable-nightly-e2e-openshift.yaml` | OpenShift | WVA-specific |
 | `reusable-nightly-e2e-openshift-helmfile.yaml` | OpenShift | Helmfile guides |
-| `reusable-nightly-e2e-gke-helmfile.yaml` | GKE | Helmfile guides |
-| `reusable-nightly-e2e-cks-helmfile.yaml` | CKS (CoreWeave) | Helmfile guides |
+| `reusable-nightly-e2e-gke.yaml` | GKE | Guides |
+| `reusable-nightly-e2e-cks.yaml` | CKS (CoreWeave) | Guides |
 
 ## Schedule Matrix
 

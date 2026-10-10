@@ -14,8 +14,8 @@ Shared CI infrastructure for the llm-d org. Contains:
 |------|---------|
 | `.github/workflows/reusable-nightly-e2e-openshift.yaml` | WVA nightly on OpenShift |
 | `.github/workflows/reusable-nightly-e2e-openshift-helmfile.yaml` | Helmfile guides on OpenShift |
-| `.github/workflows/reusable-nightly-e2e-gke-helmfile.yaml` | Helmfile guides on GKE |
-| `.github/workflows/reusable-nightly-e2e-cks-helmfile.yaml` | Helmfile guides on CKS (CoreWeave) |
+| `.github/workflows/reusable-nightly-e2e-gke.yaml` | Guides on GKE |
+| `.github/workflows/reusable-nightly-e2e-cks.yaml` | Guides on CKS (CoreWeave) |
 | `.github/workflows/reusable-prow-commands.yaml` | Prow-style /lgtm, /approve commands |
 | `templates/repo-template/` | Standard repo scaffolding |
 
