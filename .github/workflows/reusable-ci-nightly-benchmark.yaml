@@ -186,6 +186,11 @@ on:
         required: false
         type: 'string'
         default: ''
+      tpu_provisioning:
+        description: 'How the TPU placeholder acquires capacity ("flex-start" (default), "spot", "any")'
+        required: false
+        type: 'string'
+        default: 'flex-start'
       data_access_timeout:
         description: 'Timeout in seconds for data access and harness run execution'
         required: false
@@ -426,6 +431,7 @@ jobs:
       TPU_TOPOLOGY: ${{ inputs.tpu_topology || '2x4' }}
       TPU_CHIPS: ${{ inputs.tpu_chips || '0' }}
       TPU_NODEPOOL: ${{ inputs.tpu_nodepool || '' }}
+      TPU_PROVISIONING: ${{ inputs.tpu_provisioning || 'flex-start' }}
 
     steps:
       - name: Checkout Code
@@ -627,9 +633,11 @@ jobs:
         run: |
           kubectl create namespace "$LLMDBENCH_CICD_NS" || echo "Namespace already exists"
 
-          # Map accelerator_type (tpu/v6, tpu-v6, tpu/v7, tpu-v7) to GKE accelerator resource name
+          # Map accelerator_type (tpu/v5p, tpu/v6, tpu/v7 or tpu-vX) to GKE accelerator resource name
           if [[ "$LLMDBENCH_CICD_ACCELERATOR" == "tpu/v6" || "$LLMDBENCH_CICD_ACCELERATOR" == "tpu-v6" ]]; then
             ACCELERATOR="tpu-v6e-slice"
+          elif [[ "$LLMDBENCH_CICD_ACCELERATOR" == "tpu/v5p" || "$LLMDBENCH_CICD_ACCELERATOR" == "tpu-v5p" ]]; then
+            ACCELERATOR="tpu-v5p-slice"
           elif [[ "$LLMDBENCH_CICD_ACCELERATOR" == "tpu/v7" || "$LLMDBENCH_CICD_ACCELERATOR" == "tpu-v7" ]]; then
             ACCELERATOR="tpu7x"
           else
@@ -641,8 +649,21 @@ jobs:
           CHIPS_TO_REQUEST="$TPU_CHIPS"
 
           CHIPS_PER_VM=8
-          if [[ "$ACCELERATOR" == "tpu7x" ]]; then
+          if [[ "$ACCELERATOR" == "tpu7x" || "$ACCELERATOR" == "tpu-v5p-slice" ]]; then
             CHIPS_PER_VM=4
+          fi
+
+          # Capacity type the placeholder pins to. Flex-start (DWS) is the default; "spot"
+          # targets Spot node pools; "any" lets the scheduler pick any matching pool.
+          case "$TPU_PROVISIONING" in
+            flex-start) PROVISIONING_SELECTOR='cloud.google.com/gke-flex-start: "true"' ;;
+            spot)       PROVISIONING_SELECTOR='cloud.google.com/gke-spot: "true"' ;;
+            any)        PROVISIONING_SELECTOR='' ;;
+            *) echo "::error::Unsupported tpu_provisioning: $TPU_PROVISIONING"; exit 1 ;;
+          esac
+          NODEPOOL_SELECTOR=''
+          if [ -n "$TPU_NODEPOOL" ]; then
+            NODEPOOL_SELECTOR="cloud.google.com/gke-nodepool: $TPU_NODEPOOL"
           fi
 
           VMS=$(( CHIPS_TO_REQUEST / CHIPS_PER_VM ))
@@ -656,6 +677,8 @@ jobs:
           echo "  TOPOLOGY: $TOPOLOGY"
           echo "  CHIPS_PER_VM: $CHIPS_PER_VM"
           echo "  VMS: $VMS"
+          echo "  PROVISIONING: $TPU_PROVISIONING"
+          echo "  NODEPOOL: ${TPU_NODEPOOL:-<any>}"
 
           cat <<EOF | kubectl apply -n "$LLMDBENCH_CICD_NS" -f -
           apiVersion: batch/v1
@@ -672,7 +695,8 @@ jobs:
                 # on scarce TPU capacity (llm-d/llm-d#1677).
                 priorityClassName: $LLMDBENCH_CICD_PRIORITY_CLASS
                 nodeSelector:
-                  cloud.google.com/gke-flex-start: "true"
+                  ${PROVISIONING_SELECTOR}
+                  ${NODEPOOL_SELECTOR}
                   cloud.google.com/gke-tpu-accelerator: $ACCELERATOR
                   cloud.google.com/gke-tpu-topology: "$TOPOLOGY"
                 containers:
