@@ -714,9 +714,8 @@ jobs:
                 restartPolicy: OnFailure
           EOF
 
-          kubectl wait pod \
-            --for=condition=Ready \
-            -l job-name=tpu-request-job \
+          kubectl wait job/tpu-request-job \
+            --for=jsonpath='{.status.ready}'="$VMS" \
             -n "$LLMDBENCH_CICD_NS" \
             --timeout="$LLMDBENCH_CICD_JOB_TIMEOUT"
           # Export topology and accelerator so subsequent steps (like scenario overrides) can read them
