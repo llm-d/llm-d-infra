@@ -29,7 +29,7 @@ on:
         type: 'string'
         default: 'auto'
       accelerator_type:
-        description: 'Type of accelerator (gpu, cpu, sim, amd, xpu, tpu/v6, tpu/v7) (ONLY VALID FOR "kustomize" standup method)'
+        description: 'Type of accelerator (gpu, cpu, sim, amd, xpu, tpu/v5p, tpu/v6, tpu/v7) (ONLY VALID FOR "kustomize" standup method)'
         required: false
         type: 'string'
         default: 'gpu'
@@ -965,12 +965,12 @@ jobs:
           echo "### llm-d source SHA: $(git -C "$LLMDBENCH_CICD_REPO_PATH" rev-parse HEAD)"
           echo "### Rendered images:"
           kubectl kustomize "$LLMDBENCH_CICD_KUSTOMIZE_PATH" | yq -r '.. | select(has("image")) | .image' | sort -u
-          detected_model=$(kubectl kustomize "$LLMDBENCH_CICD_KUSTOMIZE_PATH" | yq .spec.template.spec.containers[0].args | sed 's^--model-path=^^g' | grep -Ev "\- \--|\- '|\---|\- \||    \--|.*exec vllm|'|null|#|\"|find|START_RANK" | sed -e 's^ ^^g' -e 's|^-||g' -e 's^\\^^g' -e '/^$/d' | uniq || true)
+          detected_model=$(kubectl kustomize "$LLMDBENCH_CICD_KUSTOMIZE_PATH" | yq .spec.template.spec.containers[0].args | sed 's^--model-path=^^g' | grep -Ev "\- \--|\- '|\---|\- \||    \--|.*exec (vllm|sglang)|'|null|#|\"|find|START_RANK|^- [0-9]+$" | sed -e 's^ ^^g' -e 's|^-||g' -e 's^\\^^g' -e '/^$/d' | uniq || true)
           if [[ -z $detected_model ]]; then
-            detected_model=$(kubectl kustomize "$LLMDBENCH_CICD_KUSTOMIZE_PATH" | yq .spec.leaderWorkerTemplate.workerTemplate.spec.containers[0].args | sed 's^--model-path=^^g' | grep -Ev "\- \--|\- '|\---|\- \||    \--|.*exec vllm|'|null|#|\"|find|START_RANK" | sed -e 's^ ^^g' -e 's|^-||g' -e 's^\\^^g' -e '/^$/d' | uniq || true)
+            detected_model=$(kubectl kustomize "$LLMDBENCH_CICD_KUSTOMIZE_PATH" | yq .spec.leaderWorkerTemplate.workerTemplate.spec.containers[0].args | sed 's^--model-path=^^g' | grep -Ev "\- \--|\- '|\---|\- \||    \--|.*exec (vllm|sglang)|'|null|#|\"|find|START_RANK|^- [0-9]+$" | sed -e 's^ ^^g' -e 's|^-||g' -e 's^\\^^g' -e '/^$/d' | uniq || true)
           fi
           if [[ -z $detected_model ]]; then
-            detected_model=$(kubectl kustomize "$LLMDBENCH_CICD_KUSTOMIZE_PATH" | yq .spec.roles[].spec.leaderWorkerTemplate.workerTemplate.spec.containers[0].args | sed 's^--model-path=^^g' | grep -Ev "\- \--|\- '|\---|\- \||    \--|.*exec vllm|'|null|#|\"|find|START_RANK" | sed -e 's^ ^^g' -e 's|^-||g' -e 's^\\^^g' -e '/^$/d' | uniq || true)
+            detected_model=$(kubectl kustomize "$LLMDBENCH_CICD_KUSTOMIZE_PATH" | yq .spec.roles[].spec.leaderWorkerTemplate.workerTemplate.spec.containers[0].args | sed 's^--model-path=^^g' | grep -Ev "\- \--|\- '|\---|\- \||    \--|.*exec (vllm|sglang)|'|null|#|\"|find|START_RANK|^- [0-9]+$" | sed -e 's^ ^^g' -e 's|^-||g' -e 's^\\^^g' -e '/^$/d' | uniq || true)
           fi
           if [[ -z $detected_model ]]; then
             echo "### ERROR: unable to detect model"
@@ -981,7 +981,7 @@ jobs:
           if [[ $LLMDBENCH_CICD_SCENARIO == "predicted-latency-routing" || $LLMDBENCH_CICD_SCENARIO == "flow-control" ]]; then
             find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/optimized-baseline/modelserver/" -type f -name "kustomization.yaml" -exec sed -i "s/optimized-baseline/$LLMDBENCH_CICD_SCENARIO/g" {} \;
             find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/optimized-baseline/modelserver/" -type f -name "kustomization.yaml" -exec bash -c 'echo -n $1:; yq ".namePrefix" $1' _ {} \;
-            find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/optimized-baseline/modelserver/" -type f -name "patch-vllm.yaml" -exec sed -i "s/optimized-baseline/$LLMDBENCH_CICD_SCENARIO/g" {} \;
+            find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/optimized-baseline/modelserver/" -type f \( -name "patch-vllm.yaml" -o -name "patch-sglang.yaml" \) -exec sed -i "s/optimized-baseline/$LLMDBENCH_CICD_SCENARIO/g" {} \;
             find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/$LLMDBENCH_CICD_CONNECTOR/router/" -type f -name "*.yaml" -exec sed -i "s/optimized-baseline/$LLMDBENCH_CICD_SCENARIO/g" {} \;
           fi
           echo "### Setting priority class \"$LLMDBENCH_CICD_PRIORITY_CLASS\" on scenario \"$LLMDBENCH_CICD_SCENARIO\""
@@ -1022,7 +1022,7 @@ jobs:
           done
           if [[ $LLMDBENCH_CICD_DECODE_PODS != "auto" ]]; then
             echo "### Setting decode pods to \"$LLMDBENCH_CICD_DECODE_PODS\" on scenario \"$LLMDBENCH_CICD_SCENARIO\""
-            for i in vllm decode; do
+            for i in vllm sglang decode; do
               find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/" -type f -name "patch-$i.yaml" ! -exec grep -q "^kind: DisaggregatedSet" {} \; -exec yq ".spec.replicas=$LLMDBENCH_CICD_DECODE_PODS" -i {} \;
               find "$LLMDBENCH_CICD_REPO_PATH/$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO/modelserver/" -type f -name "patch-$i.yaml" ! -exec grep -q "^kind: DisaggregatedSet" {} \; -print -exec yq ".spec.replicas" {} \;
             done
