@@ -15,9 +15,11 @@ on:
 
 jobs:
   execute:
+    # Dependabot runs get a read-only token on pull_request, which the action's writes cannot use.
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
-      - uses: jpmcb/prow-github-actions@v2.0.0
+      - uses: jpmcb/prow-github-actions@v3.0.1
         with:
           jobs: lgtm
           github-token: '${{ secrets.GITHUB_TOKEN }}'

@@ -21,7 +21,7 @@ on:
         type: string
         default: 'false'
       failure_category:
-        description: 'Category of failure from the benchmark workflow (prepare, prereqs, infra, guide, benchmark)'
+        description: 'Category of failure from the benchmark workflow (prepare, prereqs, infra, capacity, guide, benchmark)'
         required: false
         type: string
         default: ''
@@ -92,6 +92,10 @@ jobs:
               ;;
             failure)
               case "${{ inputs.failure_category }}" in
+                capacity)
+                  echo "color=orange" >> "$GITHUB_OUTPUT"
+                  echo "message=no-capacity" >> "$GITHUB_OUTPUT"
+                  ;;
                 prereqs)
                   echo "color=black" >> "$GITHUB_OUTPUT"
                   echo "message=prereqs-error" >> "$GITHUB_OUTPUT"
