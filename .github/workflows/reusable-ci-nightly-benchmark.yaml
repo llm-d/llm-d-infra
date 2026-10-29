@@ -445,7 +445,7 @@ jobs:
 
       - name: Set up Python
         id: prepare_setup_python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v7.1.0
         with:
           python-version: "3.14"
 
