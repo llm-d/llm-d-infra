@@ -13,6 +13,7 @@
 #       uses: llm-d/llm-d-infra/.github/workflows/reusable-unstale.yaml@main
 #       permissions:
 #         issues: write
+#         pull-requests: write
 
 name: Unstale Issues (Reusable)
 
@@ -21,6 +22,7 @@ on:
 
 permissions:
   issues: write
+  pull-requests: write
 
 jobs:
   remove-stale:
