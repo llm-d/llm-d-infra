@@ -431,6 +431,7 @@ jobs:
       GCP_PROJECT_ID: ${{ inputs.bucket_project || 'llm-d-scale' }}
       GKE_CLUSTER_NAME: ${{ inputs.cluster_name || 'llm-d-e2e-us-east5' }}
       GKE_CLUSTER_ZONE: ${{ inputs.cluster_zone || 'us-east5' }}
+      CLOUDSDK_CONTAINER_USE_APPLICATION_DEFAULT_CREDENTIALS: 'true'
       TPU_TOPOLOGY: ${{ inputs.tpu_topology || '2x4' }}
       TPU_CHIPS: ${{ inputs.tpu_chips || '0' }}
       TPU_NODEPOOL: ${{ inputs.tpu_nodepool || '' }}
@@ -477,7 +478,16 @@ jobs:
         run: |
           if [[ $LLMDBENCH_CICD_TARGET == "gke" ]]; then
             echo "Selected \"Google Kubernetes Engine\" kubeconfig"
-            gcloud container clusters get-credentials "${{ env.GKE_CLUSTER_NAME }}" --zone "${{ env.GKE_CLUSTER_ZONE }}"
+            # google-github-actions/auth sets GOOGLE_APPLICATION_CREDENTIALS and
+            # CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE. Enabling ADC tells
+            # get-credentials to pass --use_application_default_credentials to
+            # gke-gcloud-auth-plugin so it exchanges tokens directly from ADC
+            # instead of shelling out to `gcloud config config-helper`.
+            gcloud config set container/use_application_default_credentials true
+            gcloud container clusters get-credentials "${{ env.GKE_CLUSTER_NAME }}" \
+              --zone "${{ env.GKE_CLUSTER_ZONE }}" \
+              --project "${{ env.GCP_PROJECT_ID }}"
+            gke-gcloud-auth-plugin --use_application_default_credentials > /dev/null
           fi
         shell: bash
 
