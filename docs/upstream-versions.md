@@ -7,24 +7,18 @@
 
 ## Docker Build Dependencies
 
-Pinned in `docker/Dockerfile.cuda` (and variants):
+Pinned under `docker/` in llm-d/llm-d. llm-d/llm-d#2339 removed `docker/Dockerfile.cuda`; GPU guides use upstream vLLM and SGLang images, so these pins cover the CPU, XPU and RDMA tools images:
 
 | Dependency | Current Pin | Pin Type | File Location | Upstream Repo |
 |-----------|-------------|----------|---------------|---------------|
-| **vLLM** | `d7de043d55d1dd629554467e23874097e1c48993` | commit SHA | `docker/Dockerfile.cuda` line 68 (`VLLM_COMMIT_SHA`) | [vllm-project/vllm](https://github.com/vllm-project/vllm) |
-| **CUDA** | `12.9.1` | version | `docker/Dockerfile.cuda` lines 17-19 | [NVIDIA CUDA](https://developer.nvidia.com/cuda-toolkit) |
-| **Python** | `3.12` | version | `docker/Dockerfile.cuda` line 23 | [python/cpython](https://github.com/python/cpython) |
-| **GDRCOPY** | `v2.5.1` | tag | `docker/Dockerfile.cuda` line 35 | [NVIDIA/gdrcopy](https://github.com/NVIDIA/gdrcopy) |
-| **UCX** | `v1.20.0` | tag | `docker/Dockerfile.cuda` line 38 | [openucx/ucx](https://github.com/openucx/ucx) |
-| **NVSHMEM** | `v3.4.5-0` | tag | `docker/Dockerfile.cuda` line 42 | [NVIDIA/nvshmem](https://github.com/NVIDIA/nvshmem) |
-| **NIXL** | `0.9.0` | version | `docker/Dockerfile.cuda` line 46 | [ai-dynamo/nixl](https://github.com/ai-dynamo/nixl) |
-| **InfiniStore** | `0.2.33` | version | `docker/Dockerfile.cuda` line 49 | [bytedance/InfiniStore](https://github.com/bytedance/InfiniStore) |
-| **LMCache** | `v0.3.13` | tag | `docker/Dockerfile.cuda` line 51 | [LMCache/LMCache](https://github.com/LMCache/LMCache) |
-| **DeepEP** | `c66b1463601af5d127027fb459517fb97adab30d` | commit SHA (fork) | `docker/Dockerfile.cuda` line 57 | [smarterclayton/DeepEP](https://github.com/smarterclayton/DeepEP) (fork of [deepseek-ai/DeepEP](https://github.com/deepseek-ai/DeepEP)) |
-| **DeepGEMM** | `v2.1.0` | tag | `docker/Dockerfile.cuda` line 60 | [deepseek-ai/DeepGEMM](https://github.com/deepseek-ai/DeepGEMM) |
-| **pplx-kernels** | `2bd6e30fab358829bd01d1c0907be8088ff9e5e1` | commit SHA | `docker/Dockerfile.cuda` line 62 | [perplexityai/pplx-kernels](https://github.com/perplexityai/pplx-kernels) |
-| **FlashInfer** | `v0.5.3` | tag | `docker/Dockerfile.cuda` line 64 | [flashinfer-ai/flashinfer](https://github.com/flashinfer-ai/flashinfer) |
-| **PyTorch** | `2.9.1` | version | `docker/constraints.txt` line 1 | [pytorch/pytorch](https://github.com/pytorch/pytorch) |
+| **vLLM** | `ced6857afa0ea7b2e3f0846a62e1394e90f15607` | commit SHA | `docker/common-versions` line 6 (`VLLM_COMMIT_SHA`, CPU image) | [vllm-project/vllm](https://github.com/vllm-project/vllm) |
+| **vLLM XPU base image** | `v0.30.0` | tag | `docker/common-versions` line 11 (`VLLM_XPU_BASE_IMAGE`) | [vllm-project/vllm](https://github.com/vllm-project/vllm) |
+| **SGLang (XPU)** | `94602c9c2b7cbdb8efd5c52802dac6a1c180089e` | commit SHA | `docker/common-versions` line 18 (`SGLANG_XPU_REF`) | [sgl-project/sglang](https://github.com/sgl-project/sglang) |
+| **Python** | `3.12` | version | `docker/Dockerfile.cpu` line 9 | [python/cpython](https://github.com/python/cpython) |
+| **UCX** | `v1.19.x` | branch | `docker/scripts/cpu/install_nixl.py` line 109 | [openucx/ucx](https://github.com/openucx/ucx) |
+| **NIXL** | `0.6.1` | tag | `docker/scripts/cpu/install_nixl.py` line 134 | [ai-dynamo/nixl](https://github.com/ai-dynamo/nixl) |
+| **LMCache** | `v0.5.0` | tag | `docker/Dockerfile.xpu` line 30 | [LMCache/LMCache](https://github.com/LMCache/LMCache) |
+| **GDRCOPY** | `v2.5.2` | tag | `docker/Dockerfile.rdma-tools` line 11 | [NVIDIA/gdrcopy](https://github.com/NVIDIA/gdrcopy) |
 
 ## Helm Chart Dependencies
 
