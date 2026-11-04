@@ -53,6 +53,11 @@ on:
         required: false
         type: 'string'
         default: ''
+      validation_script:
+        description: 'Validation shell script relative to the deployed llm-d checkout'
+        required: false
+        type: string
+        default: ''
       cluster_name:
         description: 'Name of the cluster to be used (ONLY USED BY "GKE" provider, default is "llm-d-e2e-us-east5")'
         type: 'string'
@@ -1196,6 +1201,28 @@ jobs:
           exit 1
         shell: bash
 
+      - name: Validate guide
+        id: guide_validation
+        if: inputs.validation_script != '' && env.LLMDBENCH_IS_DRY_RUN != 'true' && steps.guide_standup.outcome == 'success'
+        timeout-minutes: 5
+        env:
+          LLMDBENCH_CICD_VALIDATION_SCRIPT: ${{ inputs.validation_script }}
+        run: |
+          set -euo pipefail
+          if [[ "$LLMDBENCH_CICD_VALIDATION_SCRIPT" == /* ]]; then
+            echo "::error::validation_script must be relative to the deployed llm-d checkout"
+            exit 1
+          fi
+          validation_path="${LLMDBENCH_CICD_REPO_PATH}/${LLMDBENCH_CICD_VALIDATION_SCRIPT}"
+          if [[ ! -f "$validation_path" ]]; then
+            printf '::error::Validation script not found: %s\n' "$validation_path" >&2
+            exit 1
+          fi
+          bash "$validation_path" \
+            -n "$LLMDBENCH_CICD_NS" \
+            -m "$LLMDBENCH_CICD_DETECTED_MODEL"
+        shell: bash
+
       - name: Debug info (on failure)
         id: infra_debug_info
         if: failure()
@@ -1403,6 +1430,7 @@ jobs:
                [ "${{ steps.infra_check_accelerator_scheduling.outputs.insufficient }}" = "true" ]; then
             CATEGORY="capacity"
           elif [ "${{ steps.guide_standup.outcome }}" = "failure" ] || \
+               [ "${{ steps.guide_validation.outcome }}" = "failure" ] || \
                [ "${{ steps.guide_teardown.outcome }}" = "failure" ] || \
                [ "${{ steps.guide_teardown_again.outcome }}" = "failure" ]; then
             CATEGORY="guide"
