@@ -53,8 +53,8 @@ on:
         required: false
         type: 'string'
         default: ''
-      validation_script:
-        description: 'Validation shell script relative to the deployed llm-d checkout'
+      e2e_validate_args:
+        description: 'Extra args for e2e-validate.sh (e.g. --extra-validate tiered-prefix-cache)'
         required: false
         type: string
         default: ''
@@ -1203,24 +1203,31 @@ jobs:
 
       - name: Validate guide
         id: guide_validation
-        if: inputs.validation_script != '' && env.LLMDBENCH_IS_DRY_RUN != 'true' && steps.guide_standup.outcome == 'success'
+        if: inputs.e2e_validate_args != '' && env.LLMDBENCH_IS_DRY_RUN != 'true' && steps.guide_standup.outcome == 'success'
         timeout-minutes: 5
         env:
-          LLMDBENCH_CICD_VALIDATION_SCRIPT: ${{ inputs.validation_script }}
+          E2E_VALIDATE_ARGS: ${{ inputs.e2e_validate_args }}
         run: |
           set -euo pipefail
-          if [[ "$LLMDBENCH_CICD_VALIDATION_SCRIPT" == /* ]]; then
-            echo "::error::validation_script must be relative to the deployed llm-d checkout"
-            exit 1
+          validation_path="${LLMDBENCH_CICD_REPO_PATH}/.github/scripts/e2e/e2e-validate.sh"
+          if [[ "$LLMDBENCH_CICD_GATEWAY_CLASS" == "epponly" ]]; then
+            guide_name="${LLMDBENCH_CICD_SCENARIO%/}"
+            export GATEWAY_HOST="${guide_name##*/}-epp"
           fi
-          validation_path="${LLMDBENCH_CICD_REPO_PATH}/${LLMDBENCH_CICD_VALIDATION_SCRIPT}"
           if [[ ! -f "$validation_path" ]]; then
             printf '::error::Validation script not found: %s\n' "$validation_path" >&2
             exit 1
           fi
-          bash "$validation_path" \
+          # Parse arguments without evaluating workflow input as shell code.
+          python3 - "$validation_path" \
             -n "$LLMDBENCH_CICD_NS" \
-            -m "$LLMDBENCH_CICD_DETECTED_MODEL"
+            -m "$LLMDBENCH_CICD_DETECTED_MODEL" <<'PY'
+          import os
+          import shlex
+          import sys
+
+          os.execvp("bash", ["bash", *sys.argv[1:], *shlex.split(os.environ["E2E_VALIDATE_ARGS"])])
+          PY
         shell: bash
 
       - name: Debug info (on failure)
