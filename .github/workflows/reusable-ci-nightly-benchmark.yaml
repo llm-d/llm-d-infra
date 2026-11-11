@@ -53,6 +53,11 @@ on:
         required: false
         type: 'string'
         default: ''
+      e2e_validate_args:
+        description: 'Extra args for e2e-validate.sh (e.g. --extra-validate tiered-prefix-cache)'
+        required: false
+        type: string
+        default: ''
       cluster_name:
         description: 'Name of the cluster to be used (ONLY USED BY "GKE" provider, default is "llm-d-e2e-us-east5")'
         type: 'string'
@@ -1196,6 +1201,23 @@ jobs:
           exit 1
         shell: bash
 
+      - name: Run E2E validation
+        id: e2e_validation
+        if: inputs.e2e_validate_args != '' && env.LLMDBENCH_IS_DRY_RUN != 'true'
+        timeout-minutes: 5
+        run: |
+          echo "Running E2E validation for $LLMDBENCH_CICD_SCENARIO..."
+          if [[ "$LLMDBENCH_CICD_GATEWAY_CLASS" == "epponly" ]]; then
+            guide_name="${LLMDBENCH_CICD_SCENARIO%/}"
+            export GATEWAY_HOST="${guide_name##*/}-epp"
+          fi
+          cd "$LLMDBENCH_CICD_REPO_PATH/.github/scripts/e2e"
+          ./e2e-validate.sh \
+            -n "$LLMDBENCH_CICD_NS" \
+            -m "$LLMDBENCH_CICD_DETECTED_MODEL" \
+            ${{ inputs.e2e_validate_args }}
+        shell: bash
+
       - name: Debug info (on failure)
         id: infra_debug_info
         if: failure()
@@ -1403,6 +1425,7 @@ jobs:
                [ "${{ steps.infra_check_accelerator_scheduling.outputs.insufficient }}" = "true" ]; then
             CATEGORY="capacity"
           elif [ "${{ steps.guide_standup.outcome }}" = "failure" ] || \
+               [ "${{ steps.e2e_validation.outcome }}" = "failure" ] || \
                [ "${{ steps.guide_teardown.outcome }}" = "failure" ] || \
                [ "${{ steps.guide_teardown_again.outcome }}" = "failure" ]; then
             CATEGORY="guide"
