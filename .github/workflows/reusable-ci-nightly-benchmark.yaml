@@ -1201,8 +1201,8 @@ jobs:
           exit 1
         shell: bash
 
-      - name: Validate guide
-        id: guide_validation
+      - name: Run E2E validation
+        id: e2e_validation
         if: inputs.e2e_validate_args != '' && env.LLMDBENCH_IS_DRY_RUN != 'true'
         timeout-minutes: 5
         run: |
@@ -1425,7 +1425,7 @@ jobs:
                [ "${{ steps.infra_check_accelerator_scheduling.outputs.insufficient }}" = "true" ]; then
             CATEGORY="capacity"
           elif [ "${{ steps.guide_standup.outcome }}" = "failure" ] || \
-               [ "${{ steps.guide_validation.outcome }}" = "failure" ] || \
+               [ "${{ steps.e2e_validation.outcome }}" = "failure" ] || \
                [ "${{ steps.guide_teardown.outcome }}" = "failure" ] || \
                [ "${{ steps.guide_teardown_again.outcome }}" = "failure" ]; then
             CATEGORY="guide"
