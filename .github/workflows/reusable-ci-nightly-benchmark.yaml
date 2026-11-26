@@ -3,6 +3,16 @@ name: CI - Generic Nightly Run Benchmark
 on:
   workflow_call:
     inputs:
+      deployment_tool:
+        description: 'Deployment lifecycle CLI (llmdbenchmark or lens)'
+        required: false
+        type: string
+        default: llmdbenchmark
+      lens_ref:
+        description: 'llm-d-lens Git revision used by the Lens deployment path'
+        required: false
+        type: string
+        default: '46bf6497ffa4eb39ac38e9026cdd0b046ae92896'
       scenario_dir:
         description: 'Directory housing the scenarios'
         required: false
@@ -380,6 +390,7 @@ jobs:
       failure_category: ${{ steps.detect_failure.outputs.failure_category }}
       matrix_type: ${{ steps.prereq_prepare_repositories.outputs.matrix_type }}
     env:
+      LLMDBENCH_CICD_DEPLOYMENT_TOOL: ${{ inputs.deployment_tool }}
       LLMDBENCH_CICD_NS: ${{ inputs.cluster_namespace || 'llmdbenchcicd' }}
       LLMDBENCH_CICD_R: ${{ inputs.helm_release || 'standalone' }}
       LLMDBENCH_CICD_SCENARIO_DIR: ${{ inputs.scenario_dir || 'cicd' }}
@@ -869,6 +880,17 @@ jobs:
           echo "### llm-d-benchmark code is present at \"$LLMDBENCH_CICD_BENCHMARK_PATH\" (SHA $(git rev-parse HEAD))"
         shell: bash
 
+      - name: Install Lens
+        id: prereq_install_lens
+        if: inputs.deployment_tool == 'lens'
+        env:
+          LENS_REF: ${{ inputs.lens_ref }}
+        run: |
+          pip install "git+https://github.com/llm-d-incubation/llm-d-lens.git@$LENS_REF#subdirectory=apps/lens"
+          llmd --help
+          echo "LLMD_STATE_DIR=$RUNNER_TEMP/llmd-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+        shell: bash
+
       - name: Apply overrides to llm-d-benchmark scenarios when using kustomize (yaml)
         id: prereqs_apply_overrides_to_llmdbenchmark_scenarios
         if: env.LLMDBENCH_CICD_METHOD == 'kustomize'
@@ -1081,7 +1103,10 @@ jobs:
           fi
           if [[ $LLMDBENCH_CICD_METHOD == "kustomize" ]]; then
             export LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD="--pod-restart-budget 3 --kustomize-deploy-timeout $LLMDBENCH_CICD_KUSTOMIZE_STANDUP_TIMEOUT --modelservice-deploy-timeout $LLMDBENCH_CICD_MODELSERVICE_STANDUP_TIMEOUT --standalone-deploy-timeout $LLMDBENCH_CICD_STANDALONE_STANDUP_TIMEOUT $LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD "
-            export LLMDBENCH_EXTRA_RUN_OPERATION_CMD="--no-prism $LLMDBENCH_EXTRA_RUN_OPERATION_CMD "
+            benchmark_run_help=$(llmdbenchmark run --help)
+            if grep -Fq -- '--no-prism' <<< "$benchmark_run_help"; then
+              export LLMDBENCH_EXTRA_RUN_OPERATION_CMD="--no-prism $LLMDBENCH_EXTRA_RUN_OPERATION_CMD "
+            fi
           fi
           export LLMDBENCH_EXTRA_RUN_OPERATION_CMD="--wait-timeout $LLMDBENCH_CICD_RUN_WAIT_TIMEOUT --pvc-bind-timeout $LLMDBENCH_CICD_RUN_PVC_BIND_TIMEOUT --data-access-timeout $LLMDBENCH_CICD_DATA_ACCESS_TIMEOUT $LLMDBENCH_EXTRA_RUN_OPERATION_CMD "
 
@@ -1120,6 +1145,25 @@ jobs:
           if [[ -n $LLMDBENCH_CICD_DETECTED_MODEL ]]; then
             export LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD="--models $LLMDBENCH_CICD_DETECTED_MODEL $LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD "
             export LLMDBENCH_EXTRA_TEARDOWN_OPERATION_CMD="--models $LLMDBENCH_CICD_DETECTED_MODEL $LLMDBENCH_EXTRA_TEARDOWN_OPERATION_CMD "
+          fi
+          if [[ "$LLMDBENCH_CICD_DEPLOYMENT_TOOL" == "lens" ]]; then
+            lens_command=standup
+            lens_args=(--wait --timeout "$LLMDBENCH_CICD_KUSTOMIZE_STANDUP_TIMEOUT")
+            if [[ "$LLMDBENCH_IS_DRY_RUN" == "true" ]]; then
+              lens_command=plan
+              lens_args=(--offline)
+            fi
+            lens_args+=("$LLMDBENCH_CICD_SCENARIO_DIR/$LLMDBENCH_CICD_SCENARIO"
+              --source "$LLMDBENCH_CICD_REPO_PATH" --namespace "$LLMDBENCH_CICD_NS"
+              --name "$LLMDBENCH_CICD_R" --skip-admin-parts
+              --var "ACCELERATOR_TYPE=$LLMDBENCH_CICD_ACCELERATOR"
+              --var "MODEL_SERVER=$LLMDBENCH_CICD_BACKEND"
+              --var "INFRA_PROVIDER=${LLMDBENCH_CICD_INFRA_PROVIDER:-base}"
+              --var "MODEL=$LLMDBENCH_CICD_DETECTED_MODEL"
+              --var "MONITORING=$LLMDBENCH_MONITORING_ENABLED")
+            printf -v LLMDBENCH_LENS_STANDUP_CMD '%q ' llmd "$lens_command" "${lens_args[@]}"
+            echo "### LLMDBENCH_LENS_STANDUP_CMD is \"$LLMDBENCH_LENS_STANDUP_CMD\""
+            echo "LLMDBENCH_LENS_STANDUP_CMD=$LLMDBENCH_LENS_STANDUP_CMD" >> "$GITHUB_ENV"
           fi
           echo "### LLMDBENCH_EXTRA_CMD is \"$LLMDBENCH_EXTRA_CMD\""
           echo "LLMDBENCH_EXTRA_CMD=$LLMDBENCH_EXTRA_CMD" >> "$GITHUB_ENV"
@@ -1179,12 +1223,21 @@ jobs:
         id: guide_standup
         run: |
           cd "$LLMDBENCH_CICD_BENCHMARK_PATH"
-          LLMDBENCH_CMD="llmdbenchmark --spec $LLMDBENCH_CICD_SCENARIO_DIR/${LLMDBENCH_CICD_SCENARIO//\//-} $LLMDBENCH_EXTRA_CMD standup $LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD --namespace $LLMDBENCH_CICD_NS --gateway-class $LLMDBENCH_CICD_GATEWAY_CLASS --release $LLMDBENCH_CICD_R --methods $LLMDBENCH_CICD_METHOD"
+          if [[ "$LLMDBENCH_CICD_DEPLOYMENT_TOOL" == "lens" ]]; then
+            LLMDBENCH_CMD="$LLMDBENCH_LENS_STANDUP_CMD"
+          else
+            LLMDBENCH_CMD="llmdbenchmark --spec $LLMDBENCH_CICD_SCENARIO_DIR/${LLMDBENCH_CICD_SCENARIO//\//-} $LLMDBENCH_EXTRA_CMD standup $LLMDBENCH_EXTRA_STANDUP_OPERATION_CMD --namespace $LLMDBENCH_CICD_NS --gateway-class $LLMDBENCH_CICD_GATEWAY_CLASS --release $LLMDBENCH_CICD_R --methods $LLMDBENCH_CICD_METHOD"
+          fi
           max_attempts=$LLMDBENCH_CICD_STANDUP_ATTEMPTS
           for attempt in $(seq 1 "$max_attempts"); do
             echo "### Standup attempt ${attempt}/${max_attempts}"
             echo "### $(cat "$LLMDBENCH_CICD_CMD_LOG"); $LLMDBENCH_CMD ###"
             if eval "$LLMDBENCH_CMD"; then
+              if [[ "$LLMDBENCH_CICD_DEPLOYMENT_TOOL" == "lens" && "$LLMDBENCH_IS_DRY_RUN" != "true" ]]; then
+                llmd -o json status "$LLMDBENCH_CICD_R" --namespace "$LLMDBENCH_CICD_NS" > "$RUNNER_TEMP/lens-status.json"
+                endpoint=$(jq -er '.endpoints[0]' "$RUNNER_TEMP/lens-status.json")
+                echo "LLMDBENCH_EXTRA_RUN_OPERATION_CMD=$LLMDBENCH_EXTRA_RUN_OPERATION_CMD --endpoint-url $endpoint" >> "$GITHUB_ENV"
+              fi
               exit 0
             fi
             if [[ $attempt -lt $max_attempts ]]; then
@@ -1315,15 +1368,22 @@ jobs:
           if [[ $LLMDBENCH_CICD_CLEANUP == 'false' ]]; then
             exit 0
           fi
-          HAS_LLMDBENCHMARK_VERSION=$(llmdbenchmark 2>&1 --version | grep '^llmdbenchmark:' | cut -d ':' -f 2 || true)
-          if [[ -z $HAS_LLMDBENCHMARK_VERSION ]]; then
-            echo "### llmdbenchmark was not even installed, will not attempt to teardown"
-            exit 0
+          if [[ "$LLMDBENCH_CICD_DEPLOYMENT_TOOL" == "lens" ]]; then
+            if [[ "$LLMDBENCH_IS_DRY_RUN" == "true" || "${{ steps.guide_standup.outcome }}" == "skipped" ]]; then
+              exit 0
+            fi
+            llmd teardown "$LLMDBENCH_CICD_R" --namespace "$LLMDBENCH_CICD_NS" --yes
+          else
+            HAS_LLMDBENCHMARK_VERSION=$(llmdbenchmark 2>&1 --version | grep '^llmdbenchmark:' | cut -d ':' -f 2 || true)
+            if [[ -z $HAS_LLMDBENCHMARK_VERSION ]]; then
+              echo "### llmdbenchmark was not even installed, will not attempt to teardown"
+              exit 0
+            fi
+            cd "$LLMDBENCH_CICD_BENCHMARK_PATH"
+            LLMDBENCH_CMD="llmdbenchmark --spec $LLMDBENCH_CICD_SCENARIO_DIR/${LLMDBENCH_CICD_SCENARIO//\//-} $LLMDBENCH_EXTRA_CMD teardown $LLMDBENCH_EXTRA_TEARDOWN_OPERATION_CMD  --namespace $LLMDBENCH_CICD_NS --gateway-class $LLMDBENCH_CICD_GATEWAY_CLASS --release $LLMDBENCH_CICD_R --methods $LLMDBENCH_CICD_METHOD"
+            echo "### $LLMDBENCH_CMD ###"
+            $LLMDBENCH_CMD
           fi
-          cd "$LLMDBENCH_CICD_BENCHMARK_PATH"
-          LLMDBENCH_CMD="llmdbenchmark --spec $LLMDBENCH_CICD_SCENARIO_DIR/${LLMDBENCH_CICD_SCENARIO//\//-} $LLMDBENCH_EXTRA_CMD teardown $LLMDBENCH_EXTRA_TEARDOWN_OPERATION_CMD  --namespace $LLMDBENCH_CICD_NS --gateway-class $LLMDBENCH_CICD_GATEWAY_CLASS --release $LLMDBENCH_CICD_R --methods $LLMDBENCH_CICD_METHOD"
-          echo "### $LLMDBENCH_CMD ###"
-          $LLMDBENCH_CMD
           kubectl -n "$LLMDBENCH_CICD_NS" exec -i access-to-harness-data-workload-pvc -- bash -c "rm -rf /requests/*" || true
         shell: bash
 
@@ -1411,6 +1471,7 @@ jobs:
                [ "${{ steps.prereq_set_gcs_full_path.outcome }}" = "failure" ] || \
                [ "${{ steps.prereq_prepare_repositories.outcome }}" = "failure" ] || \
                [ "${{ steps.prereq_install_llmdbenchmark.outcome }}" = "failure" ] || \
+               [ "${{ steps.prereq_install_lens.outcome }}" = "failure" ] || \
                [ "${{ steps.prereqs_apply_overrides_to_llmdbenchmark_scenarios.outcome }}" = "failure" ] || \
                [ "${{ steps.prereqs_set_harness_executable.outcome }}" = "failure" ] || \
                [ "${{ steps.prereqs_apply_overrides_to_kustomize_manifests.outcome }}" = "failure" ] || \
