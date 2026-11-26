@@ -1383,11 +1383,6 @@ jobs:
           HAS_LLMDBENCHMARK_VERSION=$(llmdbenchmark 2>&1 --version | grep '^llmdbenchmark:' | cut -d ':' -f 2 || true)
           if [[ -z $HAS_LLMDBENCHMARK_VERSION ]]; then
             echo "### llmdbenchmark was not even installed, will not attempt to teardown"
-            if [[ "$LLMDBENCH_CICD_DEPLOYMENT_TOOL" == "lens" ]]; then
-              teardown_status=1
-            else
-              exit 0
-            fi
           else
             cd "$LLMDBENCH_CICD_BENCHMARK_PATH"
             LLMDBENCH_CMD="llmdbenchmark --spec $LLMDBENCH_CICD_SCENARIO_DIR/${LLMDBENCH_CICD_SCENARIO//\//-} $LLMDBENCH_EXTRA_CMD teardown $LLMDBENCH_EXTRA_TEARDOWN_OPERATION_CMD  --namespace $LLMDBENCH_CICD_NS --gateway-class $LLMDBENCH_CICD_GATEWAY_CLASS --release $LLMDBENCH_CICD_R --methods $LLMDBENCH_CICD_METHOD"
