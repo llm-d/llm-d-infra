@@ -20,6 +20,12 @@ This repo provides [reusable GitHub Actions workflows](https://docs.github.com/e
 | `reusable-signed-commits.yaml` | Enforce signed/DCO commits | `pull_request_target` |
 | `reusable-non-main-gatekeeper.yaml` | Block PRs to non-main branches | `pull_request` |
 
+### Nightly router validation
+
+The reusable benchmark workflow supports optional llmdv smoke validation. See
+[enabling validation and reading its results](docs/nightly-validation.md) for the
+release pin, non-blocking rollout, artifacts, and optional verdict gate.
+
 ### Usage
 
 Create a thin caller workflow in your repo's `.github/workflows/` directory. Each caller is typically 8-12 lines:
