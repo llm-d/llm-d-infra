@@ -248,6 +248,31 @@ on:
         required: false
         default: 'nightly'
         type: 'string'
+      llmdv_version:
+        description: 'llmdv release without v (for example 0.1.4); empty disables router smoke validation'
+        required: false
+        type: 'string'
+        default: ''
+      llmdv_profile_repository:
+        description: 'Public GitHub repository containing profile YAML and the optional overlay map'
+        required: false
+        type: 'string'
+        default: 'llm-d-incubation/llm-d-validate'
+      llmdv_profile_ref:
+        description: 'Profile branch, tag, or commit; empty uses the runtime release tag'
+        required: false
+        type: 'string'
+        default: ''
+      llmdv_profile:
+        description: 'Profile YAML path relative to the profile checkout; empty selects from its overlay map'
+        required: false
+        type: 'string'
+        default: ''
+      llmdv_blocking:
+        description: 'Fail on a recorded llmdv verification failure; setup and delivery remain non-blocking'
+        required: false
+        type: 'string'
+        default: 'false'
       harness_resources:
         description: 'CPU/Memory[/MemoryLimit] for the harness pod running llm-d-benchmark workloads (default 32/64Gi). Memory is the request; MemoryLimit defaults to Memory when omitted'
         required: false
@@ -255,7 +280,7 @@ on:
         type: 'string'
     outputs:
       failure_category:
-        description: 'Category of the first failed step (prepare, prereqs, infra, guide, benchmark)'
+        description: 'Category of the first failed step (prepare, prereqs, infra, capacity, guide, benchmark, validation)'
         value: ${{ jobs.benchmark.outputs.failure_category }}
       matrix_type:
         description: 'Release matrix type'
@@ -438,6 +463,12 @@ jobs:
       TPU_PROVISIONING: ${{ inputs.tpu_provisioning || 'flex-start' }}
 
     steps:
+      - name: Record the job start for validation budgeting
+        id: llmdv_clock
+        if: inputs.llmdv_version != ''
+        run: echo "started_at=$(date +%s)" >> "$GITHUB_OUTPUT"
+        shell: bash
+
       - name: Checkout Code
         id: prepare_checkout_code
         uses: actions/checkout@v7.0.1
@@ -1308,6 +1339,91 @@ jobs:
           kubectl -n "$LLMDBENCH_CICD_NS" logs -l app=llmdbench-harness-launcher
         shell: bash
 
+      # Separate cancellation-sensitive waiting from recovery. Keep all
+      # code in the runtime release; the optional second checkout supplies YAML only.
+      - name: Prepare router validation
+        id: prepare_llmdv
+        if: ${{ !cancelled() && steps.guide_standup.outcome == 'success' && inputs.standup_method == 'kustomize' && inputs.llmdv_version != '' && inputs.dry_run != 'true' }}
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          LLMDV_JOB_STARTED_AT: ${{ steps.llmdv_clock.outputs.started_at }}
+          LLMDV_VERSION: ${{ inputs.llmdv_version }}
+          LLMDV_IMAGE: ghcr.io/llm-d-incubation/llm-d-validate:v${{ inputs.llmdv_version }}
+          LLMDV_PACKAGE: ''
+          LLMDV_PROFILE_REPOSITORY: ${{ inputs.llmdv_profile_repository }}
+          LLMDV_PROFILE_REF: ${{ inputs.llmdv_profile_ref }}
+          LLMDV_PROFILE: ${{ inputs.llmdv_profile }}
+        run: |
+          if [[ ! "$LLMDV_JOB_STARTED_AT" =~ ^[0-9]+$ ]]; then
+            echo '::warning::Cannot establish remaining job budget; skipping llmdv'
+            echo '- llmdv skipped: remaining job budget is unknown.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # 20 prepare + 16 verify + 5 recover + 5 upload + 20 existing cleanup.
+          if (( $(date +%s) - LLMDV_JOB_STARTED_AT >= (240 - 66) * 60 )); then
+            echo '::warning::Insufficient remaining job budget; skipping llmdv'
+            echo '- llmdv skipped: reserving time for cleanup and benchmark uploads.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [[ ! "$LLMDV_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo '::error::llmdv_version must name a released version (X.Y.Z)'
+            exit 2
+          fi
+          if [[ ! "$LLMDV_PROFILE_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo '::error::llmdv_profile_repository must be a public GitHub owner/repository'
+            exit 2
+          fi
+          LLMDV_PROFILE_REF="${LLMDV_PROFILE_REF:-v$LLMDV_VERSION}"
+          if [[ "$LLMDV_PROFILE_REF" == -* ]]; then
+            echo '::error::Invalid profile ref'
+            exit 2
+          fi
+          export LLMDV_PROFILE_REF
+          llmdv_temp=$(mktemp -d "$RUNNER_TEMP/llmdv.XXXXXXXX")
+          {
+            echo "work_dir=$llmdv_temp"
+            echo "runs_dir=$llmdv_temp/llmdv-runs"
+            echo "artifact_name=llmdv-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${llmdv_temp##*/}"
+          } >> "$GITHUB_OUTPUT"
+          mkdir -p "$llmdv_temp/llmdv-runs"
+          timeout -k 5 120 git clone -q --depth 1 --branch "v$LLMDV_VERSION" \
+            https://github.com/llm-d-incubation/llm-d-validate.git "$llmdv_temp/runtime"
+          export LLMDV_PROFILE_ROOT="$llmdv_temp/runtime"
+          if [[ "$LLMDV_PROFILE_REPOSITORY" != llm-d-incubation/llm-d-validate || "$LLMDV_PROFILE_REF" != "v$LLMDV_VERSION" ]]; then
+            export LLMDV_PROFILE_ROOT="$llmdv_temp/profiles"
+            git init -q "$LLMDV_PROFILE_ROOT"
+            git -C "$LLMDV_PROFILE_ROOT" remote add origin "https://github.com/$LLMDV_PROFILE_REPOSITORY.git"
+            timeout -k 5 120 git -C "$LLMDV_PROFILE_ROOT" fetch -q --depth 1 origin "$LLMDV_PROFILE_REF"
+            git -C "$LLMDV_PROFILE_ROOT" checkout -q --detach FETCH_HEAD
+          fi
+          RUNNER_TEMP="$llmdv_temp" exec bash "$llmdv_temp/runtime/deploy/llm-d-nightly/smoke-step.sh" prepare
+        shell: bash
+
+      - name: Wait for router validation
+        id: validate_llmdv
+        if: ${{ !cancelled() && steps.prepare_llmdv.outputs.status == 'prepared' }}
+        continue-on-error: true
+        timeout-minutes: 16
+        env:
+          RUN_DIR: ${{ steps.prepare_llmdv.outputs.work_dir }}
+        run: RUNNER_TEMP="$RUN_DIR" exec bash "$RUN_DIR/runtime/deploy/llm-d-nightly/smoke-step.sh" verify
+        shell: bash
+
+      - name: Finalize and collect router validation
+        id: finalize_llmdv
+        if: always() && steps.prepare_llmdv.outputs.work_dir != ''
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          RUN_DIR: ${{ steps.prepare_llmdv.outputs.work_dir }}
+          LLMDV_CANCELLED: ${{ job.status == 'cancelled' }}
+        run: |
+          if [[ -f "$RUN_DIR/llmdv-state.json" ]]; then
+            RUNNER_TEMP="$RUN_DIR" exec bash "$RUN_DIR/runtime/deploy/llm-d-nightly/smoke-step.sh" finalize
+          fi
+        shell: bash
+
       - name: Teardown
         id: guide_teardown_again
         if: always()
@@ -1325,6 +1441,25 @@ jobs:
           echo "### $LLMDBENCH_CMD ###"
           $LLMDBENCH_CMD
           kubectl -n "$LLMDBENCH_CICD_NS" exec -i access-to-harness-data-workload-pvc -- bash -c "rm -rf /requests/*" || true
+        shell: bash
+
+      - name: Upload llm-d-validate results
+        id: upload_llmdv
+        if: always() && steps.prepare_llmdv.outputs.runs_dir != ''
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prepare_llmdv.outputs.artifact_name }}
+          path: ${{ steps.prepare_llmdv.outputs.runs_dir }}
+          if-no-files-found: warn
+
+      - name: Report validation integration or upload problems
+        if: always() && (steps.prepare_llmdv.outcome == 'failure' || (steps.validate_llmdv.outcome == 'failure' && steps.validate_llmdv.outputs.verification_exit != '1') || (steps.finalize_llmdv.outcome == 'failure' && steps.finalize_llmdv.outputs.verification_exit != '1') || steps.upload_llmdv.outcome == 'failure')
+        continue-on-error: true
+        run: |
+          echo '::warning::llmdv setup or artifact upload failed; this is not a guide verdict'
+          echo '- llmdv setup or artifact upload failed; see step logs. This is not a guide verdict.' >> "$GITHUB_STEP_SUMMARY"
         shell: bash
 
       - name: Debug info (on failure)
@@ -1391,6 +1526,14 @@ jobs:
           exit 1
         shell: bash
 
+      # Gate after existing cleanup and benchmark uploads so a validation failure
+      # cannot suppress those steps. Collection/upload failure cannot erase a verdict.
+      - name: Gate on the recorded validation verdict
+        id: gate_llmdv
+        if: always() && inputs.llmdv_blocking == 'true' && (steps.validate_llmdv.outputs.verification_exit == '1' || steps.finalize_llmdv.outputs.verification_exit == '1')
+        run: exit 1
+        shell: bash
+
       - name: Detect failure category
         id: detect_failure
         if: failure()
@@ -1398,6 +1541,8 @@ jobs:
           CATEGORY=""
           if [ "${{ steps.benchmark_run.outcome }}" = "failure" ]; then
             CATEGORY="benchmark"
+          elif [ "${{ steps.gate_llmdv.outcome }}" = "failure" ]; then
+            CATEGORY="validation"
           elif [ "${{ steps.infra_request_tpus.outcome }}" = "failure" ] || \
                [ "${{ steps.infra_check_accelerator_availability.outputs.available }}" = "false" ] || \
                [ "${{ steps.infra_check_accelerator_scheduling.outputs.insufficient }}" = "true" ]; then

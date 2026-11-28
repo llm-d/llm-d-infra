@@ -21,7 +21,7 @@ on:
         type: string
         default: 'false'
       failure_category:
-        description: 'Category of failure from the benchmark workflow (prepare, prereqs, infra, capacity, guide, benchmark)'
+        description: 'Category of failure from the benchmark workflow (prepare, prereqs, infra, capacity, guide, benchmark, validation)'
         required: false
         type: string
         default: ''
@@ -111,6 +111,10 @@ jobs:
                 guide)
                   echo "color=red" >> "$GITHUB_OUTPUT"
                   echo "message=guide-error" >> "$GITHUB_OUTPUT"
+                  ;;
+                validation)
+                  echo "color=red" >> "$GITHUB_OUTPUT"
+                  echo "message=validation-error" >> "$GITHUB_OUTPUT"
                   ;;
                 benchmark)
                   echo "color=yellow" >> "$GITHUB_OUTPUT"
